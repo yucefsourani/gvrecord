@@ -35,7 +35,10 @@ New Icon
   * ``` pygobject3 ```
  
   * ``` python3-gobject ```
-
+  
+  * ``` gstreamer1-plugins-good ```
+    
+  * ``` gstreamer1-plugins-base ```
 
 
 * To Use

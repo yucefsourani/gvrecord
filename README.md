@@ -41,6 +41,10 @@ New Icon
   * ``` gstreamer1-plugins-base ```
 
 
+* Optional Requires
+  * ``` gstreamer1-plugins-ugly ```
+
+
 * To Use
  
   * ``` cd && git clone https://github.com/yucefsourani/gvrecord ```

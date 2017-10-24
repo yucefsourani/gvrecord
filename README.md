@@ -3,7 +3,8 @@ Simple Tool To Record Gnome Shell Screen
 
 https://arfedora.blogspot.com
 
-
+# To DO
+Support Audio (Pipeline)
 
 # Screenshot
 

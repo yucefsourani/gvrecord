@@ -45,8 +45,10 @@ New Icon
   * ``` chmod 755 ~/gvrecord/gvrecord.py ```
   
   * ``` chmod 755 ~/gvrecord/run.sh ```
-
-  * ``` ~/gvrecord/run.sh```
+  
+  * ``` cd ~/gvrecord/```
+  
+  * ``` ./run.sh```
 
 
 

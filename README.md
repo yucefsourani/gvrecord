@@ -5,6 +5,9 @@ https://arfedora.blogspot.com
 
 # To DO
 Support Audio (Pipeline)
+Add Config file
+New Icon
+
 
 # Screenshot
 

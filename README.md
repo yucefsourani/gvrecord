@@ -1,14 +1,18 @@
-# gvrecord
-Simple Tool To Record Gnome Shell Screen
+# gvrecord v0.2beta
+Simple Tool To Record  Screen
 
 https://arfedora.blogspot.com
 
 # To DO
-Support Audio (Pipeline)
+Support Audio in wayland
 
 Add Config file
 
 New Icon
+
+testing on ubuntu arch ...
+
+
 
 
 # Screenshot

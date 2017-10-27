@@ -2,23 +2,25 @@
 # -*- coding: utf-8 -*-
 # TO DO
 # icon
-# audio
 # config
+# support audio om wayland
 import sys
-import dbus
 import json
 import time
 import subprocess
 import os
 import pwd
+import dbus
 import threading
 import gi
+gi.require_version('Gst', '1.0')
 gi.require_version('Gtk', '3.0')
-from gi.repository import GLib, Gio, Gtk, Gdk, GdkPixbuf
+from gi.repository import GLib, Gio, Gtk, Gdk, GdkPixbuf, Gst
 
 
-
+Gst.init(None)
 bus = dbus.SessionBus()
+
 
 MENU_XML="""
 <?xml version="1.0" encoding="UTF-8"?>
@@ -48,34 +50,26 @@ css = b"""
 
 
 
+
 #PipeLine From EasyScreenCast extention
-gnome_wayland_pipeline = {   "mp41"   : [".mp4", "Mp4 x264 encoder (Quality L1)",  "x264enc psy-tune=\"none\" speed-preset=\"superfast\" subme=1 qp-min=28 qp-max=40 threads=%T  ! mp4mux name=mux",["/usr/lib64/gstreamer-1.0/libgstx264.so","/usr/lib/gstreamer-1.0/libgstx264.so"],["/usr/lib64/gstreamer-1.0/libgstisomp4.so","/usr/lib/gstreamer-1.0/libgstisomp4.so"]] ,
-                             "mp42"   : [".mp4", "Mp4 x264 encoder (Quality L2)",  "x264enc psy-tune=\"animation\" speed-preset=\"fast\" subme=5 qp-min=18 qp-max=28 threads=%T  ! mp4mux name=mux" ,["/usr/lib64/gstreamer-1.0/libgstx264.so","/usr/lib/gstreamer-1.0/libgstx264.so"],["/usr/lib64/gstreamer-1.0/libgstisomp4.so","/usr/lib/gstreamer-1.0/libgstisomp4.so"]] ,
-                             "mp43"   : [".mp4", "Mp4 x264 encoder (Quality L3)",  "x264enc psy-tune=\"animation\" speed-preset=\"medium\" subme=8 qp-min=10 qp-max=18 threads=%T  ! mp4mux name=mux",["/usr/lib64/gstreamer-1.0/libgstx264.so","/usr/lib/gstreamer-1.0/libgstx264.so"],["/usr/lib64/gstreamer-1.0/libgstisomp4.so","/usr/lib/gstreamer-1.0/libgstisomp4.so"]] ,
-                             "mp44"   : [".mp4", "Mp4 x264 encoder (Quality L4)",  "x264enc psy-tune=\"film\" speed-preset=\"slower\" subme=10 qp-min=0 qp-max=10 threads=%T  ! mp4mux name=mux",["/usr/lib64/gstreamer-1.0/libgstx264.so","/usr/lib/gstreamer-1.0/libgstx264.so"],["/usr/lib64/gstreamer-1.0/libgstisomp4.so","/usr/lib/gstreamer-1.0/libgstisomp4.so"]],
-                             "mkv1"   : [".mkv", "Mkv x264 encoder (Quality L1)",  "x264enc psy-tune=\"none\" speed-preset=\"superfast\" subme=1 qp-min=28 qp-max=40 threads=%T ! matroskamux name=mux",["/usr/lib64/gstreamer-1.0/libgstx264.so","/usr/lib/gstreamer-1.0/libgstx264.so"],["/usr/lib64/gstreamer-1.0/libgstmatroska.so","/usr/lib/gstreamer-1.0/libgstmatroska.so"]],
-                             "mkv2"   : [".mkv", "Mkv x264 encoder (Quality L2)",  "x264enc psy-tune=\"animation\" speed-preset=\"fast\" subme=5 qp-min=18 qp-max=28 threads=%T ! matroskamux name=mux",["/usr/lib64/gstreamer-1.0/libgstx264.so","/usr/lib/gstreamer-1.0/libgstx264.so"],["/usr/lib64/gstreamer-1.0/libgstmatroska.so","/usr/lib/gstreamer-1.0/libgstmatroska.so"]],
-                             "mkv3"   : [".mkv", "Mkv x264 encoder (Quality L3)",  "x264enc psy-tune=\"animation\" speed-preset=\"medium\" subme=8 qp-min=10 qp-max=18 threads=%T ! matroskamux name=mux",["/usr/lib64/gstreamer-1.0/libgstx264.so","/usr/lib/gstreamer-1.0/libgstx264.so"],["/usr/lib64/gstreamer-1.0/libgstmatroska.so","/usr/lib/gstreamer-1.0/libgstmatroska.so"]],
-                             "mkv4"   : [".mkv", "Mkv x264 encoder (Quality L4)",  "x264enc psy-tune=\"film\" speed-preset=\"slower\" subme=10 qp-min=0 qp-max=10 threads=%T ! matroskamux name=mux",["/usr/lib64/gstreamer-1.0/libgstx264.so","/usr/lib/gstreamer-1.0/libgstx264.so"],["/usr/lib64/gstreamer-1.0/libgstmatroska.so","/usr/lib/gstreamer-1.0/libgstmatroska.so"]],
-                             "webm81" : [".webm", "Webm VP8 encoder (Quality L1)", "vp8enc min_quantizer=13 max_quantizer=20 cpu-used=5 deadline=1000000 sharpness=2 target-bitrate=10000 threads=%T ! queue ! webmmux",["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"],["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"]],
-                             "webm82" : [".webm", "Webm VP8 encoder (Quality L2)", "vp8enc min_quantizer=4 max_quantizer=13 cpu-used=2 deadline=500000 sharpness=0 target-bitrate=15000 threads=%T ! queue ! webmmux",["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"],["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"]],
-                             "webm83" : [".webm", "Webm VP8 encoder (Quality L3)", "vp8enc min_quantizer=0 max_quantizer=7 cpu-used=1 deadline=500000 sharpness=0 target-bitrate=25000 threads=%T ! queue ! webmmux",["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"],["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"]],
-                             "webm84" : [".webm", "Webm VP8 encoder (Quality L4)", "vp8enc min_quantizer=0 max_quantizer=0 cpu-used=0 deadline=100000 sharpness=0 target-bitrate=40000 threads=%T ! queue ! webmmux",["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"],["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"]],
-                             "ogg1"   : [".ogg", "Ogg Theora Encoder (Quality L1)", "theoraenc speed-level=3 vp3-compatible=true quality=10 bitrate=10000  ! oggmux name=mux" ,["/usr/lib64/gstreamer-1.0/libgsttheora.so", "/usr/lib/gstreamer-1.0/libgsttheora.so"],["/usr/lib64/gstreamer-1.0/libgstogg.so", "/usr/lib/gstreamer-1.0/libgstogg.so"]] ,
-                             "ogg2"   : [".ogg", "Ogg Theora Encoder (Quality L2)", "theoraenc speed-level=1 vp3-compatible=false quality=30 bitrate=25000  ! oggmux name=mux",["/usr/lib64/gstreamer-1.0/libgsttheora.so", "/usr/lib/gstreamer-1.0/libgsttheora.so"],["/usr/lib64/gstreamer-1.0/libgstogg.so", "/usr/lib/gstreamer-1.0/libgstogg.so"]] ,
-                             "ogg3"   : [".ogg", "Ogg Theora Encoder (Quality L3)", "theoraenc speed-level=0 vp3-compatible=false quality=50 bitrate=50000  ! oggmux name=mux",["/usr/lib64/gstreamer-1.0/libgsttheora.so", "/usr/lib/gstreamer-1.0/libgsttheora.so"],["/usr/lib64/gstreamer-1.0/libgstogg.so", "/usr/lib/gstreamer-1.0/libgstogg.so"]] ,
-                             "ogg4"   : [".ogg", "Ogg Theora Encoder (Quality L4)", "theoraenc speed-level=0 vp3-compatible=false quality=60 bitrate=100000  ! oggmux name=mux",["/usr/lib64/gstreamer-1.0/libgsttheora.so", "/usr/lib/gstreamer-1.0/libgsttheora.so"],["/usr/lib64/gstreamer-1.0/libgstogg.so", "/usr/lib/gstreamer-1.0/libgstogg.so"]] ,
-                             "webm91" : [".webm", "Webm VP9 encoder (Quality L1)", "vp9enc min_quantizer=13 max_quantizer=20 cpu-used=5 deadline=1000000 sharpness=2 target-bitrate=10000 threads=%T ! queue ! webmmux",["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"],["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"]],
-                             "webm92" : [".webm", "Webm VP9 encoder (Quality L2)", "vp9enc min_quantizer=4 max_quantizer=13 cpu-used=2 deadline=500000 sharpness=0 target-bitrate=15000 threads=%T ! queue ! webmmux",["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"],["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"]],
-                             "webm93" : [".webm", "Webm VP9 encoder (Quality L3)", "vp9enc min_quantizer=0 max_quantizer=7 cpu-used=1 deadline=500000 sharpness=0 target-bitrate=25000 threads=%T ! queue ! webmmux",["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"],["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"]],
-                             "webm94" : [".webm", "Webm VP9 encoder (Quality L4)", "vp9enc min_quantizer=0 max_quantizer=0 cpu-used=0 deadline=100000 sharpness=0 target-bitrate=40000 threads=%T ! queue ! webmmux",["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"],["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"]]
+gnome_wayland_pipeline = {   "mkv1"   : [".mkv", "Mkv x264 encoder (Quality L1)",  "queue max-size-buffers=0 max-size-time=0 max-size-bytes=0 ! x264enc psy-tune=\"none\" speed-preset=\"superfast\" subme=1 qp-min=28 qp-max=40 threads=2 ! matroskamux name=mux",["/usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstx264.so","/usr/lib64/gstreamer-1.0/libgstx264.so","/usr/lib/gstreamer-1.0/libgstx264.so"],["/usr/lib64/gstreamer-1.0/libgstmatroska.so","/usr/lib/gstreamer-1.0/libgstmatroska.so","/usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstmatroska.so"]],
+                             "mkv2"   : [".mkv", "Mkv x264 encoder (Quality L2)",  "queue max-size-buffers=0 max-size-time=0 max-size-bytes=0 ! x264enc psy-tune=\"animation\" speed-preset=\"fast\" subme=5 qp-min=18 qp-max=28 threads=2 ! matroskamux name=mux",["/usr/lib64/gstreamer-1.0/libgstx264.so","/usr/lib/gstreamer-1.0/libgstx264.so"],["/usr/lib64/gstreamer-1.0/libgstmatroska.so","/usr/lib/gstreamer-1.0/libgstmatroska.so"]],
+                             "webm81" : [".webm", "Webm VP8 encoder (Quality L1)", "queue max-size-buffers=0 max-size-time=0 max-size-bytes=0 ! vp8enc min_quantizer=13 max_quantizer=20 cpu-used=5 deadline=1000000 sharpness=2 target-bitrate=10000 threads=2 ! queue ! webmmux",["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"],["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"]],
+                             "webm82" : [".webm", "Webm VP8 encoder (Quality L2)", "queue max-size-buffers=0 max-size-time=0 max-size-bytes=0 ! vp8enc min_quantizer=4 max_quantizer=13 cpu-used=2 deadline=500000 sharpness=0 target-bitrate=15000 threads=2 ! queue ! webmmux",["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"],["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"]]
                              }
                              
 
+                                   
+gnome_wayland_pipeline_sound = {   "mkv1"   : [".mkv", "Mkv x264 encoder (Quality L1)",  "queue max-size-buffers=0 max-size-time=0 max-size-bytes=0 ! x264enc psy-tune=\"none\" speed-preset=\"superfast\" subme=1 qp-min=28 qp-max=40 threads=2 ! queue max-size-buffers=0 max-size-time=0 max-size-bytes=0 ! mux. pulsesrc device=\"_AUDIODEVICE_\" ! audioconvert ! flacenc ! queue max-size-buffers=0 max-size-time=0 max-size-bytes=0  ! mux.  matroskamux name=mux",["/usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstx264.so","/usr/lib64/gstreamer-1.0/libgstx264.so","/usr/lib/gstreamer-1.0/libgstx264.so"],["/usr/lib64/gstreamer-1.0/libgstmatroska.so","/usr/lib/gstreamer-1.0/libgstmatroska.so","/usr/lib/x86_64-linux-gnu/gstreamer-1.0/libgstmatroska.so"]],
+                                   "mkv2"   : [".mkv", "Mkv x264 encoder (Quality L2)",  "queue max-size-buffers=0 max-size-time=0 max-size-bytes=0 ! x264enc psy-tune=\"animation\" speed-preset=\"fast\" subme=5 qp-min=18 qp-max=28 threads=2 ! queue max-size-buffers=0 max-size-time=0 max-size-bytes=0 ! mux. pulsesrc device=\"_AUDIODEVICE_\" ! audioconvert ! flacenc ! queue max-size-buffers=0 max-size-time=0 max-size-bytes=0  ! mux.  matroskamux name=mux",["/usr/lib64/gstreamer-1.0/libgstx264.so","/usr/lib/gstreamer-1.0/libgstx264.so"],["/usr/lib64/gstreamer-1.0/libgstmatroska.so","/usr/lib/gstreamer-1.0/libgstmatroska.so"]],
+                                   "webm81" : [".webm", "Webm VP8 encoder (Quality L1)", "queue max-size-buffers=0 max-size-time=0 max-size-bytes=0 ! vp8enc min_quantizer=13 max_quantizer=20 cpu-used=5 deadline=1000000 sharpness=2 target-bitrate=10000 threads=2 ! queue max-size-buffers=0 max-size-time=0 max-size-bytes=0 ! mux. pulsesrc device=\"_AUDIODEVICE_\" ! audioconvert ! vorbisenc ! queue max-size-buffers=0 max-size-time=0 max-size-bytes=0  ! mux.  webmmux name=mux",["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"],["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"]],
+                                   "webm82" : [".webm", "Webm VP8 encoder (Quality L2)", "queue max-size-buffers=0 max-size-time=0 max-size-bytes=0 ! vp8enc min_quantizer=4 max_quantizer=13 cpu-used=5 deadline=500000 sharpness=2 target-bitrate=15000 threads=2 ! queue max-size-buffers=0 max-size-time=0 max-size-bytes=0 ! mux. pulsesrc device=\"_AUDIODEVICE_\" ! audioconvert ! vorbisenc ! queue max-size-buffers=0 max-size-time=0 max-size-bytes=0  ! mux.  webmmux name=mux",["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"],["/usr/lib64/gstreamer-1.0/libgstvpx.so","/usr/lib/gstreamer-1.0/libgstvpx.so"]]
+                             }
+
 #xdg-open Fail
 def get_exec(file_location):
-    query = subprocess.Popen("xdg-mime query filetype {}".format(file_location).split(),stdout=subprocess.PIPE,encoding="utf-8").communicate()[0].strip()
-    desktopentry = subprocess.Popen("xdg-mime  query default {}".format(query).split(),stdout=subprocess.PIPE,encoding="utf-8").communicate()[0].strip()
+    query = subprocess.Popen("xdg-mime query filetype {}".format(file_location).split(),stdout=subprocess.PIPE).communicate()[0].decode("utf-8").strip()
+    desktopentry = subprocess.Popen("xdg-mime  query default {}".format(query).split(),stdout=subprocess.PIPE).communicate()[0].decode("utf-8").strip()
     home = pwd.getpwuid(os.geteuid()).pw_dir
     locations = [os.path.join(home,".local/share/applications"),
                  os.path.join(home,".local/share/flatpak/exports/share/applications"),
@@ -100,20 +94,12 @@ def get_exec(file_location):
         return False
     return False
     
-                             
-def isgnomeversion():
-    try:
-        object_   = bus.get_object("org.gnome.Shell","/org/gnome/Shell")
-        interface = dbus.Interface(object_,"org.freedesktop.DBus.Properties")
-        version = interface.Get("org.gnome.Shell","ShellVersion")
-    except:
-        return False
-    return version
+
 
 def getaudiosource():
-    all_    = subprocess.Popen("""pactl list | grep -A2 'Source #' | grep 'Name: ' | cut -d" " -f2""",stdout=subprocess.PIPE,encoding="utf-8",shell=True).communicate()[0].strip().split("\n")
-    monitor =  subprocess.Popen("""pactl list | grep -A2 'Source #' | grep 'Name: .*\.monitor$' | cut -d" " -f2""",stdout=subprocess.PIPE,encoding="utf-8",shell=True).communicate()[0].strip().split("\n")
-    return [all_,monitor]
+    all_    = subprocess.Popen("""pactl list | grep -A2 'Source #' | grep 'Name: ' | cut -d" " -f2""",stdout=subprocess.PIPE,shell=True).communicate()[0].decode("utf-8").strip().split("\n")
+    #monitor =  subprocess.Popen("""pactl list | grep -A2 'Source #' | grep 'Name: .*\.monitor$' | cut -d" " -f2""",stdout=subprocess.PIPE,encoding="utf-8",shell=True).communicate()[0].strip().split("\n")
+    return all_
 
 
 class PlayVideo(threading.Thread):
@@ -129,25 +115,7 @@ class PlayVideo(threading.Thread):
         else:
             return False
 
-class ScreenCastRecord(threading.Thread):
-    def __init__(self,filename,options):
-        threading.Thread.__init__(self)
-        self.filename = filename
-        self.options  = options
-        
-    def run(self):
-        time.sleep(self.options[3]+1)
-        if self.options[4]:
-            self.options[5].iconify()
-        object_ = bus.get_object("org.gnome.Shell.Screencast", "/org/gnome/Shell/Screencast")
-        start = object_.get_dbus_method("Screencast",dbus_interface="org.gnome.Shell.Screencast")
-        GLib.idle_add(self.options[6].set_sensitive,False)
-        GLib.idle_add(self.options[7].set_sensitive,True)
-        return start(self.filename[7:],{"framerate":self.options[0] ,"draw-cursor":self.options[1] ,"pipe":self.options[2]})
-        
-        
-        
-class ScreenCastAreaRecord(threading.Thread):
+class WaylandScreenCastAreaRecord(threading.Thread):
     def __init__(self,x,y,width,height,filename,options):
         threading.Thread.__init__(self)
         self.filename = filename
@@ -170,7 +138,8 @@ class ScreenCastAreaRecord(threading.Thread):
         return object_.get_dbus_method("ScreencastArea",dbus_interface="org.gnome.Shell.Screencast")(self.x,self.y,self.width,self.height,self.filename[7:],{"framerate":self.options[0] ,"draw-cursor":self.options[1] ,"pipe":self.options[2]})
         
         
-class StopRecord(threading.Thread):
+
+class WaylandStopRecord(threading.Thread):
     def __init__(self,recordbutton,stopbutton,command,isopenlocation,locations,playbutton,checkplay):
         threading.Thread.__init__(self)
         self.recordbutton = recordbutton
@@ -199,8 +168,107 @@ class StopRecord(threading.Thread):
             exec__=get_exec(self.locations)
             if exec__:
                 os.system(exec__+" "+self.locations+"&")
-            
+                
+                         
+class ScreenCastAreaRecord(threading.Thread):
+    def __init__(self,x,y,width,height,filename,options,recordbutton,stopbutton,command,isopenlocation,locations,playbutton,checkplay,startstop=None):
+        threading.Thread.__init__(self)
+        self.filename = filename
+        self.options  = options
+        self.width = width
+        self.height = height
+        self.x = x
+        self.y = y
+        self.recordbutton = recordbutton
+        self.stopbutton = stopbutton
+        self.command = command
+        self.isopenlocation = isopenlocation
+        self.locations = locations
+        self.playbutton = playbutton
+        self.checkplay = checkplay
+        self.startstop = startstop
 
+        
+        self.fileink = " ! filesink location={}".format(self.filename[7:])
+        self.ximagesrc = "ximagesrc startx={} starty={} show-pointer={} ! queue ! queue max-size-buffers=0 max-size-time=0 max-size-bytes=0 ! videoscale ! video/x-raw,framerate={}/1,width={},height={} ! videoconvert  !  ".format(self.x,self.y,self.options[1],self.options[0],self.width,self.height)
+        self.pipe=self.ximagesrc+self.options[2]+self.fileink
+        self.pipeline = Gst.Pipeline()
+        self.bus = self.pipeline.get_bus()
+        self.bus.add_signal_watch()
+        self.bus.connect('message::eos', self.on_eos)
+        self.bus.connect('message::error', self.on_error)
+        self.pipeline=Gst.parse_launch(self.pipe)
+
+
+    def change_pipe(self):
+        self.fileink = " ! filesink location={}".format(self.filename[7:])
+        self.ximagesrc = "ximagesrc startx={} starty={} show-pointer={} ! queue ! queue max-size-buffers=0 max-size-time=0 max-size-bytes=0 ! videoscale ! video/x-raw,framerate={}/1,width={},height={} ! videoconvert  !  ".format(self.x,self.y,self.options[1],self.options[0],self.width,self.height)
+        self.pipe=self.ximagesrc+self.options[2]+self.fileink
+        self.pipeline=Gst.parse_launch(self.pipe)
+
+           
+    def run(self):
+        while True:
+            if self.startstop=="b":
+                break
+            elif self.startstop=="c":
+                continue
+            elif self.startstop == True:
+                print("START")
+                self.startstop="c"
+                time.sleep(self.options[3]+1)
+                if self.options[4]:
+                    self.options[5].iconify()
+                GLib.idle_add(self.options[6].set_sensitive,False)
+                GLib.idle_add(self.options[7].set_sensitive,True)
+                GLib.idle_add(self.options[9].set_sensitive,False)
+                if self.options[8]:
+                    os.system(self.options[8]+" &")
+                self.pipeline.set_state(Gst.State.PLAYING)
+            elif self.startstop==False:
+                print("STOP")
+                self.startstop="c"
+                GLib.idle_add(self.stopbutton.set_sensitive,False)
+                GLib.idle_add(self.recordbutton.set_sensitive,True)
+                GLib.idle_add(self.playbutton.set_sensitive,True)
+                self.pipeline.set_state(Gst.State.NULL)
+                if self.command:
+                    os.system(self.command+" &")
+                if self.isopenlocation:
+                    location = os.path.dirname(self.locations)
+                    exec__=get_exec(location)
+                    if exec__:
+                        os.system(exec__+" "+location+"&")
+                    #subprocess.call("/usr/bin/xdg-open {}/".format(location).split())
+                if self.checkplay:
+                    exec__=get_exec(self.locations)
+                    if exec__:
+                        os.system(exec__+" "+self.locations+"&")
+        
+        #Gtk.main()
+        print("BREAK\n\n")
+
+
+
+    def on_eos(self, bus, msg):
+        print('on_eos(): seeking to start of video')
+        self.pipeline.seek_simple(
+            Gst.Format.TIME,        
+            Gst.SeekFlags.FLUSH | Gst.SeekFlags.KEY_UNIT,
+            0
+        )
+
+        self.startstop=="c"
+        #Gtk.main_quit()
+
+    
+    def on_error(self, bus, msg):
+        print('on_error():', msg.parse_error())
+        self.startstop=="c"
+        #Gtk.main_quit()
+
+        
+        
 class Yes_Or_No(Gtk.MessageDialog):
     def __init__(self,msg,parent):
         Gtk.MessageDialog.__init__(self,parent=parent,flags=Gtk.DialogFlags.MODAL,type=Gtk.MessageType.QUESTION,buttons=Gtk.ButtonsType.OK_CANCEL,message_format=msg)
@@ -239,7 +307,17 @@ class AppWindow(Gtk.ApplicationWindow):
         self.set_border_width(10)
         self.set_size_request(700, 500)
         self.set_resizable(False)
-        self.pipeline    = ""
+        self.__lock = False
+        try:
+            d = os.environ["XDG_SESSION_TYPE"]
+            if "wayland" in d:
+                self.wayland = True
+            else:
+                self.wayland = False
+        except:
+            self.wayland = False
+
+        self.pipe        = ""
         self.file_suffix = ""
         self.file_name   = "Record"+str(int(time.time()))
         self.folder = "file://"+GLib.get_user_special_dir(GLib.USER_DIRECTORY_VIDEOS)
@@ -253,6 +331,11 @@ class AppWindow(Gtk.ApplicationWindow):
         self.real_delay  = 3
         self.minimize    = True
         self.paly_video  = False
+        if self.recordaudio:
+            self.PIPE = gnome_wayland_pipeline_sound
+        else:
+            self.PIPE = gnome_wayland_pipeline
+        self.audiosource = getaudiosource()
         style_provider = Gtk.CssProvider()
         style_provider.load_from_data(css)
         Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), style_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
@@ -287,6 +370,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.vmainbox = Gtk.VBox(spacing=15)
         hbox1 = Gtk.HBox(spacing=10)
         monitorscreenhbox = Gtk.HBox(spacing=10)
+        sourcehbox = Gtk.HBox(spacing=10)
         widthheighthbox   = Gtk.HBox(spacing=10)
         xyhbox = Gtk.HBox(spacing=10)
         hbox2 = Gtk.HBox(spacing=10)
@@ -295,13 +379,13 @@ class AppWindow(Gtk.ApplicationWindow):
         hbox5 = Gtk.HBox(spacing=20)
 
         
-        pipe_combo = Gtk.ComboBoxText()
-        for id_,l in gnome_wayland_pipeline.items():
+        self.pipe_combo = Gtk.ComboBoxText()
+        for id_,l in self.PIPE.items():
             if self.check_gst_plugins_exists(l[3]) and self.check_gst_plugins_exists(l[4]):
-                pipe_combo.append(id_,l[1])
-        pipe_combo.set_active(0)
-        pipe_combo.connect("changed", self.on_pipe_combo_changed)
-        pipe_combo.emit("changed")
+                self.pipe_combo.append(id_,l[1])
+        self.pipe_combo.set_active(0)
+        self.pipe_combo_handler=self.pipe_combo.connect("changed", self.on_pipe_combo_changed)
+        self.pipe_combo.emit("changed")
 
         
         widthhbox  = Gtk.HBox(spacing=2)
@@ -337,12 +421,27 @@ class AppWindow(Gtk.ApplicationWindow):
         yhbox.pack_start(self.y_,True,True,0)
         
         
+        self.sm_combo_box = Gtk.HBox(spacing=10)
+        sm_combo_label = Gtk.Label("Video Source")
         self.sm_combo = Gtk.ComboBoxText()
         for k,v in self.screens_monitors_dict.items():
             self.sm_combo.append(k,v[0])
         self.sm_combo.set_active(0)
         self.sm_combo.connect("changed", self.on_sm_combo_changed)
         self.sm_combo.emit("changed")
+        self.sm_combo_box.pack_start(sm_combo_label,False,True,0)
+        self.sm_combo_box.pack_start(self.sm_combo,True,True,0)
+        
+        self.source_combo_box = Gtk.HBox(spacing=10)
+        source_combo_label = Gtk.Label("Audio Source")
+        self.source_combo = Gtk.ComboBoxText()
+        self.source_combo.set_entry_text_column(0)
+        for s in self.audiosource:
+            self.source_combo.append_text(s)
+        self.source_combo.set_active(0)
+        self.source_combo_box.pack_start(source_combo_label,False,True,0)
+        self.source_combo_box.pack_start(self.source_combo,True,True,0)
+
         
         self.filenameentry = Gtk.Entry()
         self.filenameentry.set_placeholder_text("Enter File Name...")
@@ -391,6 +490,7 @@ class AppWindow(Gtk.ApplicationWindow):
         audio_label = Gtk.Label("Record Audio")
         self.audiocheckbutton = Gtk.CheckButton()
         self.audiocheckbutton.set_active(self.recordaudio)
+        self.audiocheckbutton.connect("notify::active",self.on_audiocheckbutton_changed)
         hboxaudiocheckbutton.pack_start(audio_label,True,False,0)
         hboxaudiocheckbutton.pack_start(self.audiocheckbutton,False,False,0)
 
@@ -433,9 +533,15 @@ class AppWindow(Gtk.ApplicationWindow):
         self.playbutton.connect("clicked",self.play_)
         
         self.record_button = Gtk.Button("Record")
-        self.record_button.connect("clicked",self.startcastrecord)
+        if self.wayland:
+            self.record_button.connect("clicked",self.waylandstartcastrecord)
+        else:
+            self.record_button.connect("clicked",self.startcastrecord)
         self.stop_record_button = Gtk.Button("Stop")
-        self.stop_record_button.connect("clicked",self.stopcastrecord)
+        if self.wayland:
+            self.stop_record_button.connect("clicked",self.waylandstopcastrecord)
+        else:
+            self.stop_record_button.connect("clicked",self.stopcastrecord)
         self.stop_record_button.set_sensitive(False)
 
         vbox_frame_delay.pack_start(hboxframe,True,True,0)
@@ -447,8 +553,9 @@ class AppWindow(Gtk.ApplicationWindow):
         vbox_mouse_audio.pack_start(hboxopencheckbutton,True,True,0)
         vbox_mouse_audio.pack_start(hboxplaycheckbutton,True,True,0)
         
-        hbox1.pack_start(pipe_combo,True,True,0)
-        monitorscreenhbox.pack_start(self.sm_combo,True,True,0)
+        hbox1.pack_start(self.pipe_combo,True,True,0)
+        monitorscreenhbox.pack_start(self.sm_combo_box,True,True,0)
+        sourcehbox.pack_start(self.source_combo_box,True,True,0)
         widthheighthbox.pack_start(widthhbox,True,True,0)
         widthheighthbox.pack_start(heighthbox,True,True,0)
         xyhbox.pack_start(xhbox,True,True,0)
@@ -474,6 +581,7 @@ class AppWindow(Gtk.ApplicationWindow):
         
         self.vmainbox.pack_start(hbox1,False,False,0)
         self.vmainbox.pack_start(monitorscreenhbox,False,False,0)
+        self.vmainbox.pack_start(sourcehbox,False,False,0)
         self.vmainbox.pack_start(widthheighthbox,False,False,0)
         self.vmainbox.pack_start(xyhbox,False,False,0)
         self.vmainbox.pack_start(hbox2,False,False,0)
@@ -506,6 +614,73 @@ class AppWindow(Gtk.ApplicationWindow):
         t.start()
 
     def startcastrecord(self,button):
+        iter_ = self.pipe_combo.get_active_iter()
+        if iter_ == None:
+            return
+        if not self.filenameentry.get_text().strip():
+            self.file_name   = "Record"+str(int(time.time()))
+            self.get_finaly_location()
+            
+        if os.path.exists(self.finaly_location[7:]):
+            if not os.path.isfile(self.finaly_location[7:]):
+                msg = "Cant Replace  \"{}\"!\nAn older unknown location type with same name already exists".format(os.path.basename(self.finaly_location))
+                NInfo(msg,self)
+                return
+            msg = "Replace file \"{}\"?\nAn older file with same name already exists".format(os.path.basename(self.finaly_location))
+            yn = Yes_Or_No(msg,self)
+            if not yn.check():
+                return
+
+        commandbefore = self.before_entry.get_text().replace("(((L)))",os.path.dirname(self.finaly_location)[7:]).replace("(((F)))",self.finaly_location[7:]).replace("(((BF)))",os.path.basename(self.finaly_location)).replace("(((S)))",os.path.basename(self.finaly_location).split(".")[-1]).strip()
+        commandafter = self.after_entry.get_text().replace("(((L)))",os.path.dirname(self.finaly_location)[7:]).replace("(((F)))",self.finaly_location[7:]).replace("(((BF)))",os.path.basename(self.finaly_location)).replace("(((S)))",os.path.basename(self.finaly_location).split(".")[-1]).strip()
+        original_delay = self.delay.get_value_as_int()
+        if self.audiocheckbutton.get_active():
+            pipe = self.pipe.replace("_AUDIODEVICE_",self.source_combo.get_active_text())
+        else:
+            pipe = self.pipe
+
+        if not self.__lock:
+            self.record = ScreenCastAreaRecord(self.x_.get_text(),self.y_.get_text(),self.width_.get_text(),self.height_.get_text(),self.finaly_location,[self.frame.get_value_as_int(),self.mousecheckbutton.get_active(),pipe,original_delay,self.minimizecheckbutton.get_active(),self,button,self.stop_record_button,commandbefore,self.playbutton],self.record_button,self.stop_record_button,commandafter,self.opencheckbutton.get_active(),self.finaly_location[7:],self.playbutton,self.playcheckbutton.get_active())
+            self.record.setDaemon(True)
+            self.record.startstop = True
+            self.record.start()
+            self.__lock = True
+        else:
+            self.record.filename = self.finaly_location
+            self.record.x = self.x_.get_text()
+            self.record.y = self.y_.get_text()
+            self.record.width = self.width_.get_text()
+            self.record.height = self.height_.get_text()
+            self.record.options[0] = self.frame.get_value_as_int()
+            self.record.options[1] = self.mousecheckbutton.get_active()
+            self.record.options[2] = pipe
+            self.record.options[3] = original_delay
+            self.record.options[4] = self.minimizecheckbutton.get_active()
+            self.record.options[5] = self
+            self.record.options[6] = button
+            self.record.options[7] = self.stop_record_button
+            self.record.options[8] = commandbefore
+            self.record.options[9] = self.playbutton
+            self.record.recordbutton = self.record_button
+            self.record.stopbutton = self.stop_record_button
+            self.record.command = commandafter
+            self.record.isopenlocation = self.opencheckbutton.get_active()
+            self.record.locations = self.finaly_location[7:]
+            self.record.playbutton = self.playbutton
+            self.record.checkplay = self.playcheckbutton.get_active()
+            self.record.startstop = True
+            self.record.change_pipe()
+        GLib.idle_add(self.delay_)
+
+
+    def stopcastrecord(self,button):
+        if self.__lock:
+            self.record.startstop = False
+        
+    def waylandstartcastrecord(self,button):
+        iter_ = self.pipe_combo.get_active_iter()
+        if iter_ == None:
+            return
         if not self.filenameentry.get_text().strip():
             self.file_name   = "Record"+str(int(time.time()))
             self.get_finaly_location()
@@ -522,16 +697,18 @@ class AppWindow(Gtk.ApplicationWindow):
 
         command = self.before_entry.get_text().replace("(((L)))",os.path.dirname(self.finaly_location)[7:]).replace("(((F)))",self.finaly_location[7:]).replace("(((BF)))",os.path.basename(self.finaly_location)).replace("(((S)))",os.path.basename(self.finaly_location).split(".")[-1]).strip()
         original_delay = self.delay.get_value_as_int()
-        t1 = ScreenCastAreaRecord(self.x_.get_text(),self.y_.get_text(),self.width_.get_text(),self.height_.get_text(),self.finaly_location,[self.frame.get_value_as_int(),self.mousecheckbutton.get_active(),self.pipe,original_delay,self.minimizecheckbutton.get_active(),self,button,self.stop_record_button,command,self.playbutton])
+        if self.audiocheckbutton.get_active():
+            pipe = self.pipe.replace("_AUDIODEVICE_",self.source_combo.get_active_text())
+        else:
+            pipe = self.pipe
+        t1 = WaylandScreenCastAreaRecord(self.x_.get_text(),self.y_.get_text(),self.width_.get_text(),self.height_.get_text(),self.finaly_location,[self.frame.get_value_as_int(),self.mousecheckbutton.get_active(),pipe,original_delay,self.minimizecheckbutton.get_active(),self,button,self.stop_record_button,command,self.playbutton])
         GLib.idle_add(self.delay_)
         t1.start()
 
-    def stopcastrecord(self,button):
+    def waylandstopcastrecord(self,button):
         command = self.after_entry.get_text().replace("(((L)))",os.path.dirname(self.finaly_location)[7:]).replace("(((F)))",self.finaly_location[7:]).replace("(((BF)))",os.path.basename(self.finaly_location)).replace("(((S)))",os.path.basename(self.finaly_location).split(".")[-1]).strip()
-        t1 = StopRecord(self.record_button,self.stop_record_button,command,self.opencheckbutton.get_active(),self.finaly_location[7:],self.playbutton,self.playcheckbutton.get_active())
+        t1 = WaylandStopRecord(self.record_button,self.stop_record_button,command,self.opencheckbutton.get_active(),self.finaly_location[7:],self.playbutton,self.playcheckbutton.get_active())
         t1.start()
-        
-
         
     def get_finaly_location(self):
         self.finaly_location = os.path.join(self.folder,self.file_name+self.file_suffix)
@@ -555,11 +732,13 @@ class AppWindow(Gtk.ApplicationWindow):
 
 
 
-    def on_pipe_combo_changed(self,combo):
+    def on_pipe_combo_changed(self,combo=None):
         iter_ = combo.get_active_iter()
         if iter_ != None:
-            self.pipe = gnome_wayland_pipeline[combo.get_model()[iter_][1]][2]
-            self.file_suffix = gnome_wayland_pipeline[combo.get_model()[iter_][1]][0]
+            self.pipe = self.PIPE[combo.get_model()[iter_][1]][2]
+            self.file_suffix = self.PIPE[combo.get_model()[iter_][1]][0]
+        else:
+            self.pipe = ""
         self.get_finaly_location()
     
     def on_sm_combo_changed(self,combo):
@@ -738,8 +917,21 @@ class AppWindow(Gtk.ApplicationWindow):
         window.destroy()
         self.show()
 
+    def on_audiocheckbutton_changed(self,button,s):
+        if button.get_active():
+            self.PIPE = gnome_wayland_pipeline_sound
+        else:
+            self.PIPE = gnome_wayland_pipeline
         
+        with self.pipe_combo.handler_block(self.pipe_combo_handler):
+            self.pipe_combo.remove_all()
+            for id_,l in self.PIPE.items():
+                if self.check_gst_plugins_exists(l[3]) and self.check_gst_plugins_exists(l[4]):
+                    self.pipe_combo.append(id_,l[1])
+            self.pipe_combo.set_active(0)
         
+        self.pipe_combo.emit("changed")
+       
 class Application(Gtk.Application):
 
     def __init__(self, *args, **kwargs):
@@ -762,9 +954,6 @@ class Application(Gtk.Application):
 
     def do_activate(self):
         if not self.window:
-            if not isgnomeversion():
-                NInfo("Gnome Shell Not Found")
-                self.quit()
             self.window = AppWindow(application=self, title="GVrecord")
 
         self.window.present()
@@ -776,9 +965,9 @@ class Application(Gtk.Application):
         authors = ["Youssef Sourani <youssef.m.sourani@gmail.com>"]
         about = Gtk.AboutDialog(parent=self.window,transient_for=self.window, modal=True)
         about.set_program_name("Gvrecord")
-        about.set_version("0.1")
+        about.set_version("0.2beta")
         about.set_copyright("Copyright © 2017 Youssef Sourani")
-        about.set_comments("Simple Tool To Record Gnome Shell Screen")
+        about.set_comments("Simple Tool To Record Screen")
         about.set_website("https://arfedora.blogspot.com")
         about.set_logo(GdkPixbuf.Pixbuf.new_from_file(self.icon))
         about.set_authors(authors)

@@ -29,7 +29,7 @@ import time
 import os
 import dbus
 import gi
-from pygnomescast import get_audio_source, ThreasScreenCastAreaRecord, ThreadStopRecord, PlayVideo, is_gnome_shell
+from pygnomescast.pygnomescast import get_audio_source, ThreasScreenCastAreaRecord, ThreadStopRecord, PlayVideo, is_gnome_shell
 gi.require_version('Gtk', '3.0')
 from gi.repository import GLib, Gio, Gtk, Gdk, GdkPixbuf
 

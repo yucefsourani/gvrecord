@@ -23,13 +23,19 @@
 # TO DO
 # icon
 # config
+# support kde xfce ...
+# support Gif
 #
 import sys
 import time
 import os
+import subprocess
+import multiprocessing
+import threading
+import queue
 import dbus
 import gi
-from pygnomescast.pygnomescast import get_audio_source, ThreasScreenCastAreaRecord, ThreadStopRecord, PlayVideo, is_gnome_shell
+from pygnomescast.pygnomescast import  ThreadScreenCastAreaRecord, ThreadAudioRecord, ThreadStopRecord, PlayVideo, is_gnome_shell
 gi.require_version('Gtk', '3.0')
 from gi.repository import GLib, Gio, Gtk, Gdk, GdkPixbuf
 
@@ -55,7 +61,14 @@ MENU_XML="""
 </interface>
 """
 
+css = b"""
+#AreaChooser {
+    background-color: rgba(255, 255, 255, 0);
+    border: 1px solid red;
+}
+"""
 
+#is_gnome_shell=False
         
 class Yes_Or_No(Gtk.MessageDialog):
     def __init__(self,msg,parent):
@@ -87,7 +100,68 @@ class NInfo(Gtk.MessageDialog):
         self.destroy()
 
 
+def get_audio_sources():
+    result = dict()
+    count = 0
+    p = subprocess.Popen("arecord -l",shell=True,stdout=subprocess.PIPE).communicate()[0].decode("utf-8").split("\n")
+    for line in p:
+        line = line.strip()
+        if line.startswith("card "):
+            hw ,name = line.split(":",1)
+            result.setdefault(name.strip(),str(count))
+            count+=1
+    return result
+
+
+class RunAudioRecord(threading.Thread):
+    def __init__(self,q,hw,location):
+        threading.Thread.__init__(self)
+        self.q = q
+        self.location = location
+        self.hw = hw
     
+    def run(self):
+        p = subprocess.Popen("ffmpeg -f alsa -i {} {} -y".format(self.hw,self.location).split())
+        self.q.put(p)
+
+
+        
+class MergeAudioVideo(multiprocessing.Process):
+    def __init__(self,videolocation,audiolocation):
+        multiprocessing.Process.__init__(self)
+        self.videolocation = videolocation
+        self.audiolocation = audiolocation
+
+    def run(self):
+        format_ = self.videolocation.split(".")[-1]
+        subprocess.call(["ffmpeg", "-i", self.videolocation, "-i", self.audiolocation, "-c", "copy", self.audiolocation+"F."+format_, "-y"])
+        subprocess.call(["mv", self.audiolocation+"F."+format_, self.videolocation])
+
+class TimerLabel(threading.Thread):
+    def __init__(self,q):
+        threading.Thread.__init__(self)
+        self.q = q
+        self.label = self.q.get()
+        self.h = 0
+        self.m = 0
+        self.s = 0
+        self.break_ = False        
+    
+    def run(self):
+        while True:
+            if self.break_:
+                self.label.set_text("")
+                return
+            time.sleep(1)
+            if self.m==59:
+                self.h+=1
+                self.m=0
+            if self.s==59:
+                self.m+=1
+                self.s=0
+            self.s+=1
+            self.label.set_text("{}:{}:{}".format(self.h,self.m,self.s))
+        
 
 class AppWindow(Gtk.ApplicationWindow):
 
@@ -96,21 +170,24 @@ class AppWindow(Gtk.ApplicationWindow):
         self.set_border_width(10)
         #self.set_size_request(700, 500)
         #self.set_resizable(False)
+        self.connect("delete-event",self._quit)
+
+        style_provider = Gtk.CssProvider()
+        style_provider.load_from_data(css)
+        Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), style_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
 
-        #####################
-        #PipeLine From EasyScreenCast extention
         self.PIPE = {
-                    "webm81" : [".webm", "Webm VP8 encoder (Quality L1)",\
-                    ["vp8enc min_quantizer=13 max_quantizer=13 cpu-used=5 deadline=1000000 threads=%T ! queue ! webmmux",\
-                    "vp8enc min_quantizer=13 max_quantizer=13 cpu-used=5 deadline=1000000 threads=%T ! queue ! mux. pulsesrc device=\"__AUDIOSOURCE__\" ! audioconvert ! vorbisenc ! mux.  webmmux name=mux"]],
-                    "webm82" : [".webm", "Webm VP8 encoder (Quality L2)",\
-                    ["vp8enc min_quantizer=4 max_quantizer=13 cpu-used=2 deadline=500000 sharpness=0 target-bitrate=15000 threads=%T ! queue ! webmmux",\
-                    "vp8enc min_quantizer=4 max_quantizer=13 cpu-used=2 deadline=500000 sharpness=0 target-bitrate=15000 threads=%T ! queue ! mux. pulsesrc device=\"__AUDIOSOURCE__\" ! audioconvert ! vorbisenc ! mux.  webmmux name=mux"]]
+                    "webm81" : [".webm", "Webm VP8 encoder","vp8enc min_quantizer=13 max_quantizer=13 cpu-used=5 deadline=1000000 threads=%T ! queue ! webmmux"],
+                    "webm91" : [".webm", "Webm VP9 encoder","vp9enc min_quantizer=13 max_quantizer=13 cpu-used=5 deadline=1000000 threads=%T ! queue ! webmmux"]
                     }
+
         self.pipe = ""
-        self.audiosource = get_audio_source()
-        self.file_name = "Record"+str(int(time.time()))
+        self.audiosource = get_audio_sources()
+        self.file_name = ""
+        self.audio_file_name = ""
+        self.q  = queue.Queue()
+        self.q2 = queue.Queue()
         self.file_suffix = ""
         self.folder = "file://"+GLib.get_user_special_dir(GLib.USER_DIRECTORY_VIDEOS)
         self.finaly_location = ""
@@ -123,6 +200,7 @@ class AppWindow(Gtk.ApplicationWindow):
         self.openlocation = True
         self.paly_video = False
         self.flash_on  = True
+        self.timerlabel = False
         #####################
         
         self.display         = Gdk.Display().get_default()
@@ -219,9 +297,10 @@ class AppWindow(Gtk.ApplicationWindow):
         source_combo_label = Gtk.Label("Audio Source")
         self.source_combo = Gtk.ComboBoxText()
         self.source_combo.set_entry_text_column(0)
-        for s in self.audiosource:
-            self.source_combo.append_text(s)
-        self.source_combo.set_active(0)
+        if len(self.audiosource)>0:
+            for k,v in self.audiosource.items():
+                self.source_combo.append_text(k)
+            self.source_combo.set_active(0)
         self.source_combo_box.pack_start(source_combo_label,False,True,0)
         self.source_combo_box.pack_start(self.source_combo,True,True,0)
 
@@ -240,6 +319,7 @@ class AppWindow(Gtk.ApplicationWindow):
         
         vboxframe = Gtk.VBox(spacing = 2)
         vbox_mouse_audio = Gtk.VBox(spacing = 2)
+        hboxvideocheckbutton = Gtk.HBox()
         hboxmousecheckbutton = Gtk.HBox()
         hboxaudiocheckbutton = Gtk.HBox()
         hboxminimizecheckbutton = Gtk.HBox()
@@ -264,6 +344,13 @@ class AppWindow(Gtk.ApplicationWindow):
         hboxdelay.pack_start(delay_label,True,False,0)
         hboxdelay.pack_start(self.delay,False,False,0)
 
+
+        video_label = Gtk.Label("Record Video")
+        self.videocheckbutton = Gtk.CheckButton()
+        self.videocheckbutton.set_active(self.showmouse)
+        hboxvideocheckbutton.pack_start(video_label,True,False,0)
+        hboxvideocheckbutton.pack_start(self.videocheckbutton,False,False,0)
+
         mouse_label = Gtk.Label("Show Mouse")
         self.mousecheckbutton = Gtk.CheckButton()
         self.mousecheckbutton.set_active(self.showmouse)
@@ -273,7 +360,11 @@ class AppWindow(Gtk.ApplicationWindow):
 
         audio_label = Gtk.Label("Record Audio")
         self.audiocheckbutton = Gtk.CheckButton()
-        self.audiocheckbutton.set_active(self.recordaudio)
+        if len(self.audiosource )>0:
+            self.audiocheckbutton.set_active(self.recordaudio)
+        else:
+            self.audiocheckbutton.set_active(False)
+            self.audiocheckbutton.set_sensitive(False)
         hboxaudiocheckbutton.pack_start(audio_label,True,False,0)
         hboxaudiocheckbutton.pack_start(self.audiocheckbutton,False,False,0)
 
@@ -299,7 +390,11 @@ class AppWindow(Gtk.ApplicationWindow):
         
         flash_label = Gtk.Label("FLash Area On Delay")
         self.flashcheckbutton = Gtk.CheckButton()
-        self.flashcheckbutton.set_active(self.flash_on)
+        if not is_gnome_shell:
+            self.flashcheckbutton.set_active(False)
+            self.flashcheckbutton.set_sensitive(False)
+        else:
+            self.flashcheckbutton.set_active(self.flash_on)
         hboxflashcheckbutton.pack_start(flash_label,True,False,0)
         hboxflashcheckbutton.pack_start(self.flashcheckbutton,False,False,0)
 
@@ -331,8 +426,9 @@ class AppWindow(Gtk.ApplicationWindow):
         vbox_frame_delay.pack_start(hboxframe,True,True,0)
         vbox_frame_delay.pack_start(hboxdelay,True,True,0)
         
-        vbox_mouse_audio.pack_start(hboxmousecheckbutton,True,True,0)
+        vbox_mouse_audio.pack_start(hboxvideocheckbutton,True,True,0)
         vbox_mouse_audio.pack_start(hboxaudiocheckbutton,True,True,0)
+        vbox_mouse_audio.pack_start(hboxmousecheckbutton,True,True,0)
         vbox_mouse_audio.pack_start(hboxminimizecheckbutton,True,True,0)
         vbox_mouse_audio.pack_start(hboxopencheckbutton,True,True,0)
         vbox_mouse_audio.pack_start(hboxplaycheckbutton,True,True,0)
@@ -380,10 +476,18 @@ class AppWindow(Gtk.ApplicationWindow):
 
 
         
-    def delay_(self,x,y,width,height):
+    def delay_(self,x,y,width,height,startaudio,recordaudioonly=False):
         if self.real_delay<0:
+            if startaudio and not recordaudioonly:
+                audiosource = self.source_combo.get_active_text()
+                hw = "hw:{}".format(self.audiosource[audiosource])
+                RunAudioRecord(self.q,hw,self.audio_file_name).start()
+
             self.delay_label.set_text("")
             self.real_delay = self.delay.get_value_as_int()
+            self.q2.put(self.delay_label)
+            self.timerlabel = TimerLabel(self.q2)
+            self.timerlabel.start()
             return False
         
         self.delay_label.set_text(str(self.real_delay))
@@ -410,36 +514,64 @@ class AppWindow(Gtk.ApplicationWindow):
         if not self.filenameentry.get_text().strip():
             self.file_name   = "Record"+str(int(time.time()))
             self.get_finaly_location()
+        
+        if self.videocheckbutton.get_active():
+            if os.path.exists(self.finaly_location[7:]):
+                if not os.path.isfile(self.finaly_location[7:]):
+                    msg = "Cant Replace  \"{}\"!\nAn older unknown location type with same name already exists".format(os.path.basename(self.finaly_location))
+                    NInfo(msg,self)
+                    return
+                msg = "Replace file \"{}\"?\nAn older file with same name already exists".format(os.path.basename(self.finaly_location))
+                yn = Yes_Or_No(msg,self)
+                if not yn.check():
+                    return
+
             
-        if os.path.exists(self.finaly_location[7:]):
-            if not os.path.isfile(self.finaly_location[7:]):
-                msg = "Cant Replace  \"{}\"!\nAn older unknown location type with same name already exists".format(os.path.basename(self.finaly_location))
-                NInfo(msg,self)
-                return
-            msg = "Replace file \"{}\"?\nAn older file with same name already exists".format(os.path.basename(self.finaly_location))
-            yn = Yes_Or_No(msg,self)
-            if not yn.check():
-                return
 
         commandbefore = self.before_entry.get_text().replace("(((L)))",os.path.dirname(self.finaly_location)[7:]).replace("(((F)))",self.finaly_location[7:]).replace("(((BF)))",os.path.basename(self.finaly_location)).replace("(((S)))",os.path.basename(self.finaly_location).split(".")[-1]).strip()
         commandafter = self.after_entry.get_text().replace("(((L)))",os.path.dirname(self.finaly_location)[7:]).replace("(((F)))",self.finaly_location[7:]).replace("(((BF)))",os.path.basename(self.finaly_location)).replace("(((S)))",os.path.basename(self.finaly_location).split(".")[-1]).strip()
         original_delay = self.delay.get_value_as_int()
         if self.audiocheckbutton.get_active():
-            pipe = self.pipe[1].replace("__AUDIOSOURCE__",self.source_combo.get_active_text())
-        else:
-            pipe = self.pipe[0]
+            os.makedirs("/tmp/gvrecord", exist_ok=True)
+            self.audio_file_name = os.path.join("/tmp/gvrecord","audio"+str(int(time.time()))+".mkv")
+            if not self.videocheckbutton.get_active():
+                name = self.finaly_location[7:]+".mkv"
+                if os.path.exists(name):
+                    if not os.path.isfile(name):
+                        msg = "Cant Replace  \"{}\"!\nAn older unknown location type with same name already exists".format(os.path.basename(name))
+                        NInfo(msg,self)
+                        return
+                    msg = "Replace file \"{}\"?\nAn older file with same name already exists".format(os.path.basename(name))
+                    yn = Yes_Or_No(msg,self)
+                    if not yn.check():
+                        return
 
-        #ThreasScreenCastAreaRecord
-        record = ThreasScreenCastAreaRecord(self.x_.get_text(),self.y_.get_text(),self.width_.get_text(),self.height_.get_text(),self.finaly_location,[self.frame.get_value_as_int(),self.mousecheckbutton.get_active(),pipe,original_delay,self.minimizecheckbutton.get_active(),self,button,self.stop_record_button,commandbefore,self.playbutton,self.record_button,self.stop_record_button,commandafter,self.opencheckbutton.get_active(),self.finaly_location[7:],self.playbutton,self.playcheckbutton.get_active()])
-        record.setDaemon(True)
-        record.start()
-        GLib.idle_add(self.delay_,int(self.x_.get_text()),int(self.y_.get_text()),int(self.width_.get_text()),int(self.height_.get_text()))
+        if self.videocheckbutton.get_active():
+            #ThreasScreenCastAreaRecord
+            record = ThreadScreenCastAreaRecord(self.x_.get_text(),self.y_.get_text(),self.width_.get_text(),self.height_.get_text(),self.finaly_location,[self.frame.get_value_as_int(),self.mousecheckbutton.get_active(),self.pipe,original_delay,self.minimizecheckbutton.get_active(),self,button,self.stop_record_button,commandbefore,self.playbutton,self.record_button,self.stop_record_button,commandafter,self.opencheckbutton.get_active(),self.finaly_location[7:],self.playbutton,self.playcheckbutton.get_active()])
+            record.setDaemon(True)
+            record.start()
+            GLib.idle_add(self.delay_,int(self.x_.get_text()),int(self.y_.get_text()),int(self.width_.get_text()),int(self.height_.get_text()),self.audiocheckbutton.get_active())
+        else:
+            audiosource = self.source_combo.get_active_text()
+            hw = "hw:{}".format(self.audiosource[audiosource])
+            record = ThreadAudioRecord(self.x_.get_text(),self.y_.get_text(),self.width_.get_text(),self.height_.get_text(),self.finaly_location,[self.frame.get_value_as_int(),self.mousecheckbutton.get_active(),self.pipe,original_delay,self.minimizecheckbutton.get_active(),self,button,self.stop_record_button,commandbefore,self.playbutton,self.record_button,self.stop_record_button,commandafter,self.opencheckbutton.get_active(),self.finaly_location[7:],self.playbutton,self.playcheckbutton.get_active(),self.q,hw])
+            record.setDaemon(True)
+            record.start()
+            GLib.idle_add(self.delay_,int(self.x_.get_text()),int(self.y_.get_text()),int(self.width_.get_text()),int(self.height_.get_text()),self.audiocheckbutton.get_active(),True)
 
     def stopcastrecord(self,button):
         command = self.after_entry.get_text().replace("(((L)))",os.path.dirname(self.finaly_location)[7:]).replace("(((F)))",self.finaly_location[7:]).replace("(((BF)))",os.path.basename(self.finaly_location)).replace("(((S)))",os.path.basename(self.finaly_location).split(".")[-1]).strip()
         t1 = ThreadStopRecord(self.record_button,self.stop_record_button,command,self.opencheckbutton.get_active(),self.finaly_location[7:],self.playbutton,self.playcheckbutton.get_active())
         t1.setDaemon(True)
         t1.start()
+        if not self.q.empty():
+            p = self.q.get().terminate()
+            self.timerlabel.break_ = True
+            if self.videocheckbutton.get_active():
+                MergeAudioVideo(self.finaly_location[7:],self.audio_file_name).start()
+
+
 
         
     def get_finaly_location(self):
@@ -467,8 +599,7 @@ class AppWindow(Gtk.ApplicationWindow):
     def on_pipe_combo_changed(self,combo=None):
         iter_ = combo.get_active_iter()
         if iter_ != None:
-            self.pipe = self.PIPE[combo.get_model()[iter_][1]][2]
-            
+            self.pipe = self.PIPE[combo.get_model()[iter_][1]][-1]
             self.file_suffix = self.PIPE[combo.get_model()[iter_][1]][0]
         else:
             self.pipe = ""
@@ -484,7 +615,10 @@ class AppWindow(Gtk.ApplicationWindow):
         if iter_ != None:
             key = combo.get_model()[iter_][1]
             if key == "area":
-                self.selectarea()
+                if is_gnome_shell:
+                    self.selectareagnome()
+                else:
+                    self.selectarea()
             
             elif key.startswith("screen"):
                 self.width_.set_sensitive(True)
@@ -591,7 +725,7 @@ class AppWindow(Gtk.ApplicationWindow):
             self.height_.set_text(str(int(self.screens_monitors_dict[key][2])-e.get_value_as_int()))
         
     
-    def selectarea(self):
+    def selectareagnome(self):
         bus   = dbus.SessionBus()
         obj   = bus.get_object("org.gnome.Shell.Screenshot","/org/gnome/Shell/Screenshot")
         intf  = dbus.Interface(obj,"org.gnome.Shell.Screenshot")
@@ -612,8 +746,66 @@ class AppWindow(Gtk.ApplicationWindow):
         self.x_.handler_unblock(self.xhandler)
         self.y_.handler_unblock(self.yhandler)
 
+    def selectarea(self):
+        self.hide()
+        
+        hb=Gtk.HeaderBar()
+        hb.set_show_close_button(True)
+        hb.props.title = "AreaChooser"
+        
+        window = Gtk.Window(title="AreaChooser",window_position=Gtk.WindowPosition.CENTER,gravity=Gdk.Gravity.SOUTH)
+        window.set_titlebar(hb)
+        window.set_name('AreaChooser')
+        window.connect("delete-event", self.on_delete_areachooser)
+        
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        Gtk.StyleContext.add_class(box.get_style_context(), "linked")
+        
+        button = Gtk.Button()
+        button.connect("clicked",self.on_apply_areachooser,window)
+        button.add(Gtk.Arrow(Gtk.ArrowType.LEFT, Gtk.ShadowType.NONE))
+        
+        box.add(button)
+        hb.pack_start(box)
 
-       
+        window.show_all()
+        
+    def on_delete_areachooser(self,window,p):
+        window.destroy()
+        self.sm_combo.set_active(0)
+        self.show()
+
+    def on_apply_areachooser(self,button,window):
+        width,height = window.get_size()
+        x, y = window.get_position()
+        x %= self.screens[0].get_width()
+        y %= self.screens[0].get_height() 
+        self.sm_combo.set_active(0)
+        self.width_.handler_block(self.widthhandler)
+        self.height_.handler_block(self.heighthandler)
+        self.x_.handler_block(self.xhandler)
+        self.y_.handler_block(self.yhandler)
+        
+        self.width_.set_text(str(width))
+        self.height_.set_text(str(height))
+        self.x_.set_text(str(x))
+        self.y_.set_text(str(y))
+
+        self.width_.handler_unblock(self.widthhandler)
+        self.height_.handler_unblock(self.heighthandler)
+        self.x_.handler_unblock(self.xhandler)
+        self.y_.handler_unblock(self.yhandler)
+        window.destroy()
+        self.show()
+        
+    def _quit(self,*argv):
+        if not self.q.empty():
+            p = self.q.get().terminate()  
+            self.timerlabel.break_ = True
+            if self.videocheckbutton.get_active():
+                MergeAudioVideo(self.finaly_location[7:],self.audio_file_name).start()
+            
+        
 class Application(Gtk.Application):
 
     def __init__(self, *args, **kwargs):
@@ -639,8 +831,8 @@ class Application(Gtk.Application):
             self.window = AppWindow(application=self, title="GVrecord")
 
         self.window.present()
-
     def on_quit(self, action, param):
+        self.window._quit()
         self.quit()
 
     def on_about(self,a,p):
@@ -662,9 +854,9 @@ class Application(Gtk.Application):
 
 
 if __name__ == "__main__":
-    if not is_gnome_shell:
-        NInfo("Gnome Shell Not Detected",None)
-        sys.exit(1)
+    #if not is_gnome_shell:
+    #    NInfo("Gnome Shell Not Detected",None)
+     #   sys.exit(1)
     app = Application()
     app.run(sys.argv)
     

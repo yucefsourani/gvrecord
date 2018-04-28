@@ -241,7 +241,7 @@ class PlayVideo(threading.Thread):
             return False
             
 
-class ThreasScreenCastAreaRecord(threading.Thread):
+class ThreadScreenCastAreaRecord(threading.Thread):
     def __init__(self,x,y,width,height,filename,options):
         threading.Thread.__init__(self)
         self.filename = filename
@@ -267,7 +267,32 @@ class ThreasScreenCastAreaRecord(threading.Thread):
         framerate=self.options[0],draw_cursor=self.options[1],pipeline=self.options[2])
 
         return  screencast.start()
+       
+class ThreadAudioRecord(threading.Thread):
+    def __init__(self,x,y,width,height,filename,options):
+        threading.Thread.__init__(self)
+        self.filename = filename
+        self.options  = options
+        self.width = int(width)
+        self.height = int(height)
+        self.x = int(x)
+        self.y = int(y)
+        self.hw = self.options[-1]
+        self.q = self.options[-2]
         
+    def run(self):
+        time.sleep(self.options[3]+1)
+        if self.options[4]:
+            self.options[5].iconify()
+
+        GLib.idle_add(self.options[6].set_sensitive,False)
+        GLib.idle_add(self.options[7].set_sensitive,True)
+        GLib.idle_add(self.options[9].set_sensitive,False)
+        if self.options[8]:
+            subprocess.call(self.options[8],shell=True)
+        p = subprocess.Popen("ffmpeg -f alsa -i {} {} -y".format(self.hw,self.filename[7:]+".mkv").split())
+        self.q.put(p)
+
 
 class ThreadStopRecord(threading.Thread):
     def __init__(self,recordbutton,stopbutton,command,isopenlocation,locations,playbutton,checkplay):

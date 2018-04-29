@@ -265,7 +265,6 @@ class ThreadScreenCastAreaRecord(threading.Thread):
             subprocess.call(self.options[8],shell=True)
         screencast = ScreencastArea(self.x,self.y,self.width,self.height,self.filename[7:],\
         framerate=self.options[0],draw_cursor=self.options[1],pipeline=self.options[2])
-
         return  screencast.start()
        
 class ThreadAudioRecord(threading.Thread):
@@ -290,7 +289,7 @@ class ThreadAudioRecord(threading.Thread):
         GLib.idle_add(self.options[9].set_sensitive,False)
         if self.options[8]:
             subprocess.call(self.options[8],shell=True)
-        p = subprocess.Popen("ffmpeg -f alsa -i {} {} -y".format(self.hw,self.filename[7:]+".mkv").split())
+        p = subprocess.Popen("ffmpeg -f alsa -i {} {} -y".format(self.hw,self.filename).split())
         self.q.put(p)
 
 

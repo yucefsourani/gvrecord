@@ -21,11 +21,13 @@
 #  MA 02110-1301, USA.
 #
 # TO DO
-# icon
-# config
 # support kde xfce ...
 # support Gif
-#
+# new ui
+# noise sound 
+# pause start
+
+
 import sys
 import time
 import os
@@ -35,6 +37,7 @@ import threading
 import queue
 import dbus
 import gi
+import json
 from pygnomescast.pygnomescast import  ThreadScreenCastAreaRecord, ThreadAudioRecord, ThreadStopRecord, PlayVideo, is_gnome_shell
 gi.require_version('Gtk', '3.0')
 from gi.repository import GLib, Gio, Gtk, Gdk, GdkPixbuf
@@ -68,7 +71,54 @@ css = b"""
 }
 """
 
-#is_gnome_shell=False
+default_config = {
+    "frame"    : 30,
+    "delay"    : 3,
+    "silent"   : 3,
+    "power"    : 0.1,
+    "rvideo"   : True,
+    "raudio"   : True,
+    "smouse"   : True,
+    "minimize" : True,
+    "openl"    : True,
+    "play"     : False,
+    "flash"    : True,
+    "rnoise"   : False,
+}
+
+current_config = {}
+
+config_file_location = os.path.join(GLib.get_user_config_dir(),"gvrecord")
+os.makedirs(config_file_location, exist_ok=True)
+config_file          = os.path.join(config_file_location,"config.json")
+
+def config_():
+    global current_config
+    current_config.clear()
+    if not os.path.isfile(config_file ):
+        current_config = default_config.copy()
+        with open(config_file,"w") as cf:
+            json.dump(default_config,cf, indent=4)
+    else:
+        try:
+            with open(config_file) as cf:
+                current_config = json.loads(cf.read())
+        except:
+            subprocess.call("rm -f {}".format(config_file),shell=True)
+            return config_()
+        
+config_()
+
+def write_config():
+    try:
+        with open(config_file,"w") as cf:
+            json.dump(current_config,cf, indent=4)
+    except:
+        subprocess.call("rm -f {}".format(config_file),shell=True)
+        return config
+        
+
+        
         
 class Yes_Or_No(Gtk.MessageDialog):
     def __init__(self,msg,parent):
@@ -119,6 +169,7 @@ class RunAudioRecord(threading.Thread):
         self.q = q
         self.location = location
         self.hw = hw
+
     
     def run(self):
         p = subprocess.Popen("ffmpeg -f alsa -i {} {} -y".format(self.hw,self.location).split())
@@ -127,15 +178,36 @@ class RunAudioRecord(threading.Thread):
 
         
 class MergeAudioVideo(multiprocessing.Process):
-    def __init__(self,videolocation,audiolocation):
+    def __init__(self,videolocation,audiolocation,vformat_,aformat_,remove_noise,_end=5,power=0.2):
         multiprocessing.Process.__init__(self)
-        self.videolocation = videolocation
-        self.audiolocation = audiolocation
+        self.videolocation  = videolocation
+        self.audiolocation  = audiolocation
+        self.aformat_       = aformat_
+        self.vformat_       = vformat_
+        self.remove_noise   = remove_noise
+        self._start         = "00:00:00"
+        self._end           = "00:00:0{}".format(_end)
+        self.power          = power
 
     def run(self):
-        format_ = self.videolocation.split(".")[-1]
-        subprocess.call(["ffmpeg", "-i", self.videolocation, "-i", self.audiolocation, "-c", "copy", self.audiolocation+"F."+format_, "-y"])
-        subprocess.call(["mv", self.audiolocation+"F."+format_, self.videolocation])
+        if self.remove_noise:
+            noiseaud  = os.path.join("/tmp/gvrecord","noiseaud"+str(int(time.time()))+self.aformat_)
+            subprocess.call("ffmpeg -i '{}' -vn -ss {} -t {} {}".format(self.audiolocation , self._start, self._end,noiseaud),shell=True)
+            
+            noiseprof = os.path.join("/tmp/gvrecord","noiseprof"+str(int(time.time()))+".prof")
+            subprocess.call("sox {} -n noiseprof {}".format(noiseaud,noiseprof),shell=True)
+            
+            audio_clean  = os.path.join("/tmp/gvrecord","audio-clean"+str(int(time.time()))+self.aformat_)
+            subprocess.call("sox -t {} {}  {} noisered {} {}".format(self.aformat_[1:],self.audiolocation,audio_clean,noiseprof,self.power),shell=True)
+            
+            new_video = os.path.join("/tmp/gvrecord","new_video"+str(int(time.time()))+self.vformat_)
+            subprocess.call(["ffmpeg", "-i", self.videolocation, "-i", audio_clean,"-c", "copy",new_video,"-y"])
+            subprocess.call(["mv", new_video, self.videolocation])
+            
+        else:
+            new_video = os.path.join("/tmp/gvrecord","new_video"+str(int(time.time()))+self.vformat_)
+            subprocess.call(["ffmpeg","-y", "-i", self.videolocation, "-i", self.audiolocation,"-c", "copy",new_video])
+            subprocess.call(["mv", new_video, self.videolocation]) 
 
 class TimerLabel(threading.Thread):
     def __init__(self,q):
@@ -177,29 +249,59 @@ class AppWindow(Gtk.ApplicationWindow):
         Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), style_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
 
-        self.PIPE = {
-                    "webm81" : [".webm", "Webm VP8 encoder","vp8enc min_quantizer=13 max_quantizer=13 cpu-used=5 deadline=1000000 threads=%T ! queue ! webmmux"],
-                    "webm91" : [".webm", "Webm VP9 encoder","vp9enc min_quantizer=13 max_quantizer=13 cpu-used=5 deadline=1000000 threads=%T ! queue ! webmmux"]
+        self.PIPE_WEBM= {
+                    "webm81" : [".webm","Webm VP8 encoder (Audio Mkv)","vp8enc min_quantizer=13 max_quantizer=13 cpu-used=5 deadline=1000000 threads=%T ! queue ! webmmux", ".mkv"]
                     }
 
+        self.PIPE_MKV= {
+                    "webm81" : [".mkv","Mkv encoder (Audio Mp3)","vp8enc min_quantizer=13 max_quantizer=13 cpu-used=5 deadline=1000000 threads=%T ! queue ! webmmux", ".mp3"]
+                    }
+        self.PIPE = {}
+
+
         self.pipe = ""
+        self.af   = ""
         self.audiosource = get_audio_sources()
         self.file_name = ""
         self.audio_file_name = ""
         self.q  = queue.Queue()
         self.q2 = queue.Queue()
         self.file_suffix = ""
+        
         self.folder = "file://"+GLib.get_user_special_dir(GLib.USER_DIRECTORY_VIDEOS)
         self.finaly_location = ""
         self.get_finaly_location()
-        self.frame_value = 30
-        self.delay_value = 3
-        self.showmouse = True
-        self.recordaudio = True
-        self.minimize = True
-        self.openlocation = True
-        self.paly_video = False
-        self.flash_on  = True
+        try:
+            self.frame_value = current_config["frame"]##
+            self.delay_value = current_config["delay"]#
+            self.end_value   = current_config["silent"]##
+            self.power_value = current_config["power"]#
+        
+            self.recordvideo = current_config["rvideo"]##
+            self.recordaudio = current_config["raudio"]##
+            self.showmouse = current_config["smouse"]##
+            self.minimize = current_config["minimize"]##
+            self.openlocation = current_config["openl"]##
+            self.paly_video = current_config["play"]##
+            self.flash_on  = current_config["flash"]##
+            self.noise_on  = current_config["rnoise"]##
+        except:
+            subprocess.call("rm -f {}".format(config_file),shell=True)
+            config_()
+            self.frame_value = current_config["frame"]
+            self.delay_value = current_config["delay"]
+            self.end_value   = current_config["silent"]
+            self.power_value = current_config["power"]
+        
+            self.recordvideo = current_config["rvideo"]
+            self.recordaudio = current_config["raudio"]
+            self.showmouse = current_config["smouse"]
+            self.minimize = current_config["minimize"]
+            self.openlocation = current_config["openl"]
+            self.paly_video = current_config["play"]
+            self.flash_on  = current_config["flash"]
+            self.noise_on  = current_config["rnoise"]
+
         self.timerlabel = False
         #####################
         
@@ -241,12 +343,7 @@ class AppWindow(Gtk.ApplicationWindow):
         hbox5 = Gtk.HBox(spacing=20)
 
         
-        self.pipe_combo = Gtk.ComboBoxText()
-        for id_,l in self.PIPE.items():
-                self.pipe_combo.append(id_,l[1])
-        self.pipe_combo.set_active(0)
-        self.pipe_combo_handler=self.pipe_combo.connect("changed", self.on_pipe_combo_changed)
-        self.pipe_combo.emit("changed")
+
 
         
         widthhbox  = Gtk.HBox(spacing=2)
@@ -316,6 +413,8 @@ class AppWindow(Gtk.ApplicationWindow):
         self.choicefolder.connect("file-set",self.on_choicefolder_file_set)
         self.choicefolder.emit("file-set")
    
+
+        
         
         vboxframe = Gtk.VBox(spacing = 2)
         vbox_mouse_audio = Gtk.VBox(spacing = 2)
@@ -326,13 +425,17 @@ class AppWindow(Gtk.ApplicationWindow):
         hboxopencheckbutton = Gtk.HBox()
         hboxplaycheckbutton = Gtk.HBox()
         hboxflashcheckbutton = Gtk.HBox()
+        hboxnoisecheckbutton = Gtk.HBox()
         hboxframe = Gtk.HBox()
         hboxdelay = Gtk.HBox()
+        hboxsilent = Gtk.HBox()
+        hboxpower = Gtk.HBox()
         vbox_frame_delay = Gtk.VBox(spacing = 10)
 
         frame_label = Gtk.Label("Framerate")
         adjustment = Gtk.Adjustment(value=self.frame_value,lower=10,upper=61,page_size=1,step_increment=1, page_increment=0)
         self.frame = Gtk.SpinButton(max_width_chars=2,value=self.frame_value,adjustment=adjustment)
+        self.frame.connect("value-changed",self.on_value_changed2,"frame")
         hboxframe.pack_start(frame_label,True,False,0)
         hboxframe.pack_start(self.frame,False,False,0)
 
@@ -344,16 +447,39 @@ class AppWindow(Gtk.ApplicationWindow):
         hboxdelay.pack_start(delay_label,True,False,0)
         hboxdelay.pack_start(self.delay,False,False,0)
 
+        silent_label = Gtk.Label("End Silent at (Noise)")
+        adjustment1 = Gtk.Adjustment(value=self.end_value,lower= 3,upper=11,page_size= 1,step_increment =1, page_increment=0)
+        self.silent = Gtk.SpinButton(max_width_chars=2,value=self.delay_value,adjustment=adjustment1)
+        self.silent.connect("value-changed",self.on_value_changed2,"silent")
+        hboxsilent.pack_start(silent_label,True,False,0)
+        hboxsilent.pack_start(self.silent,False,False,0)
+        
+        power_label = Gtk.Label("Effect Power (Noise)")
+        self.p_label = Gtk.Label("")
+        self.power  = Gtk.ScaleButton.new(0,0,0.9,0.1,["zoom-in","zoom-out"])
+        self.power.set_vexpand(True)
+        self.power.set_hexpand(True)
+        self.power.props.size = Gtk.IconSize.MENU
+        self.power.set_orientation(Gtk.Orientation.HORIZONTAL)
+        self.power.connect("value-changed", self.on_scale_button_changed)
+        self.power.set_value(self.power_value)
+        hboxpower.pack_start(power_label,True,False,0)
+        hboxpower.pack_start(self.p_label,True,False,0)
+        hboxpower.pack_start(self.power,True,True,0)
+        self.power.emit("value-changed",self.power.get_value())
+
 
         video_label = Gtk.Label("Record Video")
         self.videocheckbutton = Gtk.CheckButton()
-        self.videocheckbutton.set_active(self.showmouse)
+        self.videocheckbutton.set_active(self.recordvideo)
+        self.videocheckbutton.connect("toggled",self.on_value_changed,"rvideo")
         hboxvideocheckbutton.pack_start(video_label,True,False,0)
         hboxvideocheckbutton.pack_start(self.videocheckbutton,False,False,0)
 
         mouse_label = Gtk.Label("Show Mouse")
         self.mousecheckbutton = Gtk.CheckButton()
         self.mousecheckbutton.set_active(self.showmouse)
+        self.mousecheckbutton.connect("toggled",self.on_value_changed,"smouse")
         hboxmousecheckbutton.pack_start(mouse_label,True,False,0)
         hboxmousecheckbutton.pack_start(self.mousecheckbutton,False,False,0)
        
@@ -365,6 +491,7 @@ class AppWindow(Gtk.ApplicationWindow):
         else:
             self.audiocheckbutton.set_active(False)
             self.audiocheckbutton.set_sensitive(False)
+        self.audiocheckbutton.connect("toggled",self.on_value_changed,"raudio")
         hboxaudiocheckbutton.pack_start(audio_label,True,False,0)
         hboxaudiocheckbutton.pack_start(self.audiocheckbutton,False,False,0)
 
@@ -372,6 +499,7 @@ class AppWindow(Gtk.ApplicationWindow):
         minimize_label = Gtk.Label("Minimize Before Record")
         self.minimizecheckbutton = Gtk.CheckButton()
         self.minimizecheckbutton.set_active(self.minimize)
+        self.minimizecheckbutton.connect("toggled",self.on_value_changed,"minimize")
         hboxminimizecheckbutton.pack_start(minimize_label,True,False,0)
         hboxminimizecheckbutton.pack_start(self.minimizecheckbutton,False,False,0)
 
@@ -379,12 +507,14 @@ class AppWindow(Gtk.ApplicationWindow):
         open_label = Gtk.Label("Open Location After Stop")
         self.opencheckbutton = Gtk.CheckButton()
         self.opencheckbutton.set_active(self.openlocation)
+        self.opencheckbutton.connect("toggled",self.on_value_changed,"openl")
         hboxopencheckbutton.pack_start(open_label,True,False,0)
         hboxopencheckbutton.pack_start(self.opencheckbutton,False,False,0)
 
         play_label = Gtk.Label("Play Video After Stop")
         self.playcheckbutton = Gtk.CheckButton()
         self.playcheckbutton.set_active(self.paly_video)
+        self.playcheckbutton.connect("toggled",self.on_value_changed,"play")
         hboxplaycheckbutton.pack_start(play_label,True,False,0)
         hboxplaycheckbutton.pack_start(self.playcheckbutton,False,False,0)
         
@@ -395,9 +525,39 @@ class AppWindow(Gtk.ApplicationWindow):
             self.flashcheckbutton.set_sensitive(False)
         else:
             self.flashcheckbutton.set_active(self.flash_on)
+            self.flashcheckbutton.connect("toggled",self.on_value_changed,"flash")
         hboxflashcheckbutton.pack_start(flash_label,True,False,0)
         hboxflashcheckbutton.pack_start(self.flashcheckbutton,False,False,0)
+        
+        
+        noise_label = Gtk.Label("Remove Noise")
+        self.noisecheckbutton = Gtk.CheckButton()
+        if not os.path.isfile("/usr/bin/sox"):
+            self.noisecheckbutton.set_tooltip_text("Install Sox To Active")
+            self.noisecheckbutton.set_active(False)
+            self.noisecheckbutton.set_sensitive(False)
+        else:
+            self.noisecheckbutton.set_active(self.noise_on)
+        hboxnoisecheckbutton.pack_start(noise_label,True,False,0)
+        hboxnoisecheckbutton.pack_start(self.noisecheckbutton,False,False,0)
+        self.noisecheckbutton.connect("toggled",self.on_noisecheckbutton)
+        
 
+
+        self.pipe_combo = Gtk.ComboBoxText()
+        if self.noisecheckbutton:
+            self.PIPE = self.PIPE_MKV
+        else:
+            self.PIPE = self.PIPE_WEBM
+        for id_,l in self.PIPE.items():
+            self.pipe_combo.append(id_,l[1])
+        
+        self.pipe_combo.set_active(0)
+        self.pipe_combo_handler=self.pipe_combo.connect("changed", self.on_pipe_combo_changed)
+        self.pipe_combo.emit("changed")
+        self.noisecheckbutton.emit("toggled")
+        
+        
         before_hbox = Gtk.HBox(spacing=2)
         before_label = Gtk.Label("Run Before")
         self.before_entry = Gtk.Entry()
@@ -423,8 +583,12 @@ class AppWindow(Gtk.ApplicationWindow):
         self.stop_record_button.connect("clicked",self.stopcastrecord)
         self.stop_record_button.set_sensitive(False)
 
+
+
         vbox_frame_delay.pack_start(hboxframe,True,True,0)
         vbox_frame_delay.pack_start(hboxdelay,True,True,0)
+        vbox_frame_delay.pack_start(hboxsilent,True,True,0)
+        vbox_frame_delay.pack_start(hboxpower,True,True,0)
         
         vbox_mouse_audio.pack_start(hboxvideocheckbutton,True,True,0)
         vbox_mouse_audio.pack_start(hboxaudiocheckbutton,True,True,0)
@@ -433,6 +597,7 @@ class AppWindow(Gtk.ApplicationWindow):
         vbox_mouse_audio.pack_start(hboxopencheckbutton,True,True,0)
         vbox_mouse_audio.pack_start(hboxplaycheckbutton,True,True,0)
         vbox_mouse_audio.pack_start(hboxflashcheckbutton,True,True,0)
+        vbox_mouse_audio.pack_start(hboxnoisecheckbutton,True,True,0)
         
         hbox1.pack_start(self.pipe_combo,True,True,0)
         monitorscreenhbox.pack_start(self.sm_combo_box,True,True,0)
@@ -474,6 +639,28 @@ class AppWindow(Gtk.ApplicationWindow):
         self.add(vb)
         self.show_all()
 
+    def on_value_changed2(self,w,d):
+        current_config[d]=w.get_value_as_int()
+
+    def on_value_changed(self,w,d):
+        current_config[d]=w.get_active()
+        
+    def on_scale_button_changed(self,scalebutton,v):
+        self.p_label.set_text(str(round(v,1)))
+        current_config["power"]=v
+        
+    def on_noisecheckbutton(self,widget):
+        with self.pipe_combo.handler_block(self.pipe_combo_handler):
+            self.pipe_combo.remove_all()
+        if widget.get_active():
+            self.PIPE = self.PIPE_MKV
+        else:
+            self.PIPE = self.PIPE_WEBM
+            
+        for id_,l in self.PIPE.items():
+            self.pipe_combo.append(id_,l[1])        
+        self.pipe_combo.set_active(0)
+        current_config["rnoise"]=widget.get_active()
 
         
     def delay_(self,x,y,width,height,startaudio,recordaudioonly=False):
@@ -501,7 +688,9 @@ class AppWindow(Gtk.ApplicationWindow):
         return True
 
     def on_delay_value_changed(self,widget):
-        self.real_delay = self.delay.get_value_as_int()
+        v = self.delay.get_value_as_int()
+        self.real_delay = v
+        current_config["delay"]=v
 
     def play_(self,button):
         t=PlayVideo(self.finaly_location[7:])
@@ -533,9 +722,9 @@ class AppWindow(Gtk.ApplicationWindow):
         original_delay = self.delay.get_value_as_int()
         if self.audiocheckbutton.get_active():
             os.makedirs("/tmp/gvrecord", exist_ok=True)
-            self.audio_file_name = os.path.join("/tmp/gvrecord","audio"+str(int(time.time()))+".mkv")
+            self.audio_file_name = os.path.join("/tmp/gvrecord","audio"+str(int(time.time()))+self.af)
             if not self.videocheckbutton.get_active():
-                name = self.finaly_location[7:]+".mkv"
+                name = self.finaly_location[7:].rsplit(".",1)[0]+self.af
                 if os.path.exists(name):
                     if not os.path.isfile(name):
                         msg = "Cant Replace  \"{}\"!\nAn older unknown location type with same name already exists".format(os.path.basename(name))
@@ -555,7 +744,7 @@ class AppWindow(Gtk.ApplicationWindow):
         else:
             audiosource = self.source_combo.get_active_text()
             hw = "hw:{}".format(self.audiosource[audiosource])
-            record = ThreadAudioRecord(self.x_.get_text(),self.y_.get_text(),self.width_.get_text(),self.height_.get_text(),self.finaly_location,[self.frame.get_value_as_int(),self.mousecheckbutton.get_active(),self.pipe,original_delay,self.minimizecheckbutton.get_active(),self,button,self.stop_record_button,commandbefore,self.playbutton,self.record_button,self.stop_record_button,commandafter,self.opencheckbutton.get_active(),self.finaly_location[7:],self.playbutton,self.playcheckbutton.get_active(),self.q,hw])
+            record = ThreadAudioRecord(self.x_.get_text(),self.y_.get_text(),self.width_.get_text(),self.height_.get_text(),name,[self.frame.get_value_as_int(),self.mousecheckbutton.get_active(),self.pipe,original_delay,self.minimizecheckbutton.get_active(),self,button,self.stop_record_button,commandbefore,self.playbutton,self.record_button,self.stop_record_button,commandafter,self.opencheckbutton.get_active(),self.finaly_location[7:],self.playbutton,self.playcheckbutton.get_active(),self.q,hw])
             record.setDaemon(True)
             record.start()
             GLib.idle_add(self.delay_,int(self.x_.get_text()),int(self.y_.get_text()),int(self.width_.get_text()),int(self.height_.get_text()),self.audiocheckbutton.get_active(),True)
@@ -565,11 +754,13 @@ class AppWindow(Gtk.ApplicationWindow):
         t1 = ThreadStopRecord(self.record_button,self.stop_record_button,command,self.opencheckbutton.get_active(),self.finaly_location[7:],self.playbutton,self.playcheckbutton.get_active())
         t1.setDaemon(True)
         t1.start()
+        if self.timerlabel:
+            self.timerlabel.break_ = True
         if not self.q.empty():
             p = self.q.get().terminate()
-            self.timerlabel.break_ = True
-            if self.videocheckbutton.get_active():
-                MergeAudioVideo(self.finaly_location[7:],self.audio_file_name).start()
+            if self.videocheckbutton.get_active() and self.audiocheckbutton.get_active():
+                MergeAudioVideo(self.finaly_location[7:],self.audio_file_name,self.file_suffix,self.af,self.noisecheckbutton.get_active(),self.silent.get_value(),self.power.get_value()).start()
+
 
 
 
@@ -599,11 +790,15 @@ class AppWindow(Gtk.ApplicationWindow):
     def on_pipe_combo_changed(self,combo=None):
         iter_ = combo.get_active_iter()
         if iter_ != None:
-            self.pipe = self.PIPE[combo.get_model()[iter_][1]][-1]
+            self.pipe = self.PIPE[combo.get_model()[iter_][1]][2]
             self.file_suffix = self.PIPE[combo.get_model()[iter_][1]][0]
+            self.af = self.PIPE[combo.get_model()[iter_][1]][-1]
         else:
             self.pipe = ""
+            self.af   = ""
         self.get_finaly_location()
+
+
 
     
     def on_sm_combo_changed(self,combo):
@@ -799,12 +994,13 @@ class AppWindow(Gtk.ApplicationWindow):
         self.show()
         
     def _quit(self,*argv):
+        if self.timerlabel:
+            self.timerlabel.break_ = True
         if not self.q.empty():
             p = self.q.get().terminate()  
-            self.timerlabel.break_ = True
             if self.videocheckbutton.get_active():
-                MergeAudioVideo(self.finaly_location[7:],self.audio_file_name).start()
-            
+                MergeAudioVideo(self.finaly_location[7:],self.audio_file_name,self.file_suffix,self.af,self.noisecheckbutton.get_active(),self.silent.get_value(),self.power.get_value()).start()
+        write_config()
         
 class Application(Gtk.Application):
 
@@ -839,7 +1035,7 @@ class Application(Gtk.Application):
         authors = ["Youssef Sourani <youssef.m.sourani@gmail.com>"]
         about = Gtk.AboutDialog(parent=self.window,transient_for=self.window, modal=True)
         about.set_program_name("Gvrecord")
-        about.set_version("0.3beta")
+        about.set_version("0.4beta")
         about.set_copyright("Copyright © 2017 Youssef Sourani")
         about.set_comments("Simple Tool To Record Screen")
         about.set_website("https://arfedora.blogspot.com")
@@ -854,9 +1050,9 @@ class Application(Gtk.Application):
 
 
 if __name__ == "__main__":
-    #if not is_gnome_shell:
-    #    NInfo("Gnome Shell Not Detected",None)
-     #   sys.exit(1)
+    if not is_gnome_shell:
+        NInfo("Gnome Shell Not Detected",None)
+        sys.exit(1)
     app = Application()
     app.run(sys.argv)
     

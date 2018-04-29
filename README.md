@@ -1,4 +1,4 @@
-# gvrecord v0.3beta (For Gnome Shell Only)
+# gvrecord v0.4beta (For Gnome Shell Only)
 Simple Tool To Record  Screen
 
 https://arfedora.blogspot.com
@@ -14,7 +14,7 @@ support Gif.
 
 # Screenshot
 
-![Alt text](https://raw.githubusercontent.com/yucefsourani/gvrecord/master/1.jpg "Screenshot")
+![Alt text](https://raw.githubusercontent.com/yucefsourani/gvrecord/master/0.jpg "Screenshot")
 
 ![Alt text](https://raw.githubusercontent.com/yucefsourani/gvrecord/master/2.jpg "Screenshot")
 

@@ -40,6 +40,7 @@ support Gif.
 
   * ``` ffmpeg #For Audio Record ```
 
+  * ``` alsa-utils ```
 
 
 * To Use

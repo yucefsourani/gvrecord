@@ -1078,7 +1078,7 @@ class Application(Gtk.Application):
         authors = ["Youssef Sourani <youssef.m.sourani@gmail.com>"]
         about = Gtk.AboutDialog(parent=self.window,transient_for=self.window, modal=True)
         about.set_program_name("Gvrecord")
-        about.set_version("0.4beta")
+        about.set_version("0.4")
         about.set_copyright("Copyright © 2017 Youssef Sourani")
         about.set_comments("Simple Tool To Record Screen On Gnome Shell")
         about.set_website("https://arfedora.blogspot.com")

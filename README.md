@@ -1,4 +1,4 @@
-# gvrecord v0.4beta (For Gnome Shell Only)
+# gvrecord v0.4(For Gnome Shell Only)
 Simple Tool To Record  Screen
 
 https://arfedora.blogspot.com

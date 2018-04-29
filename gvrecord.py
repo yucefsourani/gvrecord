@@ -23,9 +23,9 @@
 # TO DO
 # support kde xfce ...
 # support Gif
-# new ui
-# noise sound 
-# pause start
+#
+# Ubuntu sudo apt-get install libsox-fmt-mp3 sox ffmpeg  #/usr/lib/x86_64-linux-gnu/sox/libsox_fmt_mp3.so
+# Fedora dnf install sox ffmpeg
 
 
 import sys
@@ -209,6 +209,30 @@ class MergeAudioVideo(multiprocessing.Process):
             subprocess.call(["ffmpeg","-y", "-i", self.videolocation, "-i", self.audiolocation,"-c", "copy",new_video])
             subprocess.call(["mv", new_video, self.videolocation]) 
 
+
+class RemoveAudioNoise(multiprocessing.Process):
+    def __init__(self,audiolocation,aformat_,_end=5,power=0.2):
+        multiprocessing.Process.__init__(self)
+        self.audiolocation  = audiolocation
+        self.aformat_       = aformat_
+        self._start         = "00:00:00"
+        self._end           = "00:00:0{}".format(_end)
+        self.power          = power
+
+    def run(self):
+        noiseaud  = os.path.join("/tmp/gvrecord","noiseaud"+str(int(time.time()))+self.aformat_)
+        subprocess.call("ffmpeg -i '{}' -vn -ss {} -t {} {}".format(self.audiolocation , self._start, self._end,noiseaud),shell=True)
+            
+        noiseprof = os.path.join("/tmp/gvrecord","noiseprof"+str(int(time.time()))+".prof")
+        subprocess.call("sox {} -n noiseprof {}".format(noiseaud,noiseprof),shell=True)
+            
+        audio_clean  = os.path.join("/tmp/gvrecord","audio-clean"+str(int(time.time()))+self.aformat_)
+        subprocess.call("sox -t {} {}  {} noisered {} {}".format(self.aformat_[1:],self.audiolocation,audio_clean,noiseprof,self.power),shell=True)
+        subprocess.call(["mv", audio_clean, self.audiolocation])
+            
+
+            
+            
 class TimerLabel(threading.Thread):
     def __init__(self,q):
         threading.Thread.__init__(self)
@@ -240,8 +264,8 @@ class AppWindow(Gtk.ApplicationWindow):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.set_border_width(10)
-        #self.set_size_request(700, 500)
-        #self.set_resizable(False)
+        self.set_size_request(500, 300)
+        self.set_resizable(False)
         self.connect("delete-event",self._quit)
 
         style_provider = Gtk.CssProvider()
@@ -486,11 +510,16 @@ class AppWindow(Gtk.ApplicationWindow):
 
         audio_label = Gtk.Label("Record Audio")
         self.audiocheckbutton = Gtk.CheckButton()
-        if len(self.audiosource )>0:
-            self.audiocheckbutton.set_active(self.recordaudio)
-        else:
+        if len(self.audiosource )<0:
             self.audiocheckbutton.set_active(False)
             self.audiocheckbutton.set_sensitive(False)
+            self.audiocheckbutton.set_tooltip_text("No Sound Card")
+        elif not os.path.isfile("/usr/bin/ffmpeg"):
+            self.audiocheckbutton.set_tooltip_text("Install ffmpeg To Active")
+            self.audiocheckbutton.set_active(False)
+            self.audiocheckbutton.set_sensitive(False)
+        else:
+            self.audiocheckbutton.set_active(self.recordaudio)
         self.audiocheckbutton.connect("toggled",self.on_value_changed,"raudio")
         hboxaudiocheckbutton.pack_start(audio_label,True,False,0)
         hboxaudiocheckbutton.pack_start(self.audiocheckbutton,False,False,0)
@@ -536,6 +565,14 @@ class AppWindow(Gtk.ApplicationWindow):
             self.noisecheckbutton.set_tooltip_text("Install Sox To Active")
             self.noisecheckbutton.set_active(False)
             self.noisecheckbutton.set_sensitive(False)
+        elif not os.path.isfile("/usr/bin/ffmpeg"):
+            self.noisecheckbutton.set_tooltip_text("Install ffmpeg To Active")
+            self.noisecheckbutton.set_active(False)
+            self.noisecheckbutton.set_sensitive(False)
+        elif len(self.audiosource )<0:
+            self.noisecheckbutton.set_active(False)
+            self.noisecheckbutton.set_sensitive(False)
+            self.noisecheckbutton.set_tooltip_text("No Sound Card")
         else:
             self.noisecheckbutton.set_active(self.noise_on)
         hboxnoisecheckbutton.pack_start(noise_label,True,False,0)
@@ -647,7 +684,7 @@ class AppWindow(Gtk.ApplicationWindow):
         
     def on_scale_button_changed(self,scalebutton,v):
         self.p_label.set_text(str(round(v,1)))
-        current_config["power"]=v
+        current_config["power"]=round(v,1)
         
     def on_noisecheckbutton(self,widget):
         with self.pipe_combo.handler_block(self.pipe_combo_handler):
@@ -699,6 +736,8 @@ class AppWindow(Gtk.ApplicationWindow):
     def startcastrecord(self,button):
         iter_ = self.pipe_combo.get_active_iter()
         if iter_ == None:
+            return
+        if not self.videocheckbutton.get_active() and not self.audiocheckbutton.get_active():
             return
         if not self.filenameentry.get_text().strip():
             self.file_name   = "Record"+str(int(time.time()))
@@ -760,7 +799,8 @@ class AppWindow(Gtk.ApplicationWindow):
             p = self.q.get().terminate()
             if self.videocheckbutton.get_active() and self.audiocheckbutton.get_active():
                 MergeAudioVideo(self.finaly_location[7:],self.audio_file_name,self.file_suffix,self.af,self.noisecheckbutton.get_active(),self.silent.get_value(),self.power.get_value()).start()
-
+            elif not self.videocheckbutton.get_active() and self.audiocheckbutton.get_active() and self.noisecheckbutton.get_active():
+                RemoveAudioNoise(self.finaly_location[7:].rsplit(".",1)[0]+self.af,self.af,self.silent.get_value(),self.power.get_value()).start()
 
 
 
@@ -1000,6 +1040,9 @@ class AppWindow(Gtk.ApplicationWindow):
             p = self.q.get().terminate()  
             if self.videocheckbutton.get_active():
                 MergeAudioVideo(self.finaly_location[7:],self.audio_file_name,self.file_suffix,self.af,self.noisecheckbutton.get_active(),self.silent.get_value(),self.power.get_value()).start()
+            elif not self.videocheckbutton.get_active() and self.audiocheckbutton.get_active() and self.noisecheckbutton.get_active():
+                RemoveAudioNoise(self.finaly_location[7:].rsplit(".",1)[0]+self.af,self.af,self.silent.get_value(),self.power.get_value()).start()
+
         write_config()
         
 class Application(Gtk.Application):
@@ -1037,7 +1080,7 @@ class Application(Gtk.Application):
         about.set_program_name("Gvrecord")
         about.set_version("0.4beta")
         about.set_copyright("Copyright © 2017 Youssef Sourani")
-        about.set_comments("Simple Tool To Record Screen")
+        about.set_comments("Simple Tool To Record Screen On Gnome Shell")
         about.set_website("https://arfedora.blogspot.com")
         about.set_logo(GdkPixbuf.Pixbuf.new_from_file(self.icon))
         about.set_authors(authors)

@@ -4,11 +4,10 @@ Simple Tool To Record  Screen
 https://arfedora.blogspot.com
 
 # To DO
-Add Config file
 
-New Icon
+support kde xfce ...
 
-testing on ubuntu arch ...
+support Gif.
 
 
 
@@ -16,6 +15,8 @@ testing on ubuntu arch ...
 # Screenshot
 
 ![Alt text](https://raw.githubusercontent.com/yucefsourani/gvrecord/master/1.jpg "Screenshot")
+
+![Alt text](https://raw.githubusercontent.com/yucefsourani/gvrecord/master/2.jpg "Screenshot")
 
 
 
@@ -32,6 +33,12 @@ testing on ubuntu arch ...
   * ``` gstreamer1-plugins-good ```
     
   * ``` gstreamer1-plugins-base ```
+
+  * ``` sox #For Remove Noise ```
+
+  * ``` libsox-fmt-mp3 #For ubuntu ```
+
+  * ``` ffmpeg #For Audio Record ```
 
 
 

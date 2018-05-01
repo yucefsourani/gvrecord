@@ -33,6 +33,16 @@ tmp
 https://arfedora.blogspot.com/2018/04/gvrecord.html
 
 
+Important note: if you recorded a video with sound, and you played the video immediately but you didn't hear anything, just give it few moments the program is still embedding Audio Track into video.
+After embedding the audio the old video get replaced by the new one containing both Audio and Video Tracks, i might change this behavior in the future, but the end result will need sometime before you can see it or play it.
+i could have done something like loading...
+but i preferred the embedding operation done by process, meaning even if you close the program by mistake you'll not lose your recordings and the embedding will be carried on by the process.
+
+the sound track and the embedding operation files can be found in /tmp/gvrecord
+you can recover your files from that directory in case something happened, but keep in mind that everything is in tmp directory will be erased by the system later.
+
+
+
 # To DO
 
 support kde xfce ...

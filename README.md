@@ -28,6 +28,9 @@ tmp
 
 سيتخلص منه النظام لاحقا. 
 
+لمزيد من المعلومات
+
+https://arfedora.blogspot.com/2018/04/gvrecord.html
 
 
 # To DO

@@ -115,7 +115,7 @@ def write_config():
             json.dump(current_config,cf, indent=4)
     except:
         subprocess.call("rm -f {}".format(config_file),shell=True)
-        return config
+        
         
 
         

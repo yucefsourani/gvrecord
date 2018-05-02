@@ -549,7 +549,7 @@ class AppWindow(Gtk.ApplicationWindow):
         
         flash_label = Gtk.Label("FLash Area On Delay")
         self.flashcheckbutton = Gtk.CheckButton()
-        if not is_gnome_shell:
+        if not is_gnome_shell():
             self.flashcheckbutton.set_active(False)
             self.flashcheckbutton.set_sensitive(False)
         else:
@@ -850,7 +850,7 @@ class AppWindow(Gtk.ApplicationWindow):
         if iter_ != None:
             key = combo.get_model()[iter_][1]
             if key == "area":
-                if is_gnome_shell:
+                if is_gnome_shell():
                     self.selectareagnome()
                 else:
                     self.selectarea()
@@ -1093,7 +1093,7 @@ class Application(Gtk.Application):
 
 
 if __name__ == "__main__":
-    if not is_gnome_shell:
+    if not is_gnome_shell():
         NInfo("Gnome Shell Not Detected",None)
         sys.exit(1)
     app = Application()
